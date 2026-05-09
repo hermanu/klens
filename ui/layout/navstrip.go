@@ -50,36 +50,42 @@ func renderItems(cfg NavStripConfig, withLabel bool) []string {
 	return out
 }
 
+// Two-tone palette: every inactive cell renders in muted; the active item
+// renders in accent (bold). No third color, no per-token shade gradient — the
+// user feedback was that mixing fg / muted / muted2 made the strip hard to
+// scan. The only intra-item contrast on the active cell is bold-vs-regular
+// for the V/T split when filtered (V bold, /T regular).
 func renderNavItem(it NavItem, active, withLabel bool, visibleCount, totalCount int) string {
 	mnem := it.Mnemonic
 	label := strings.ToLower(it.Label)
 
 	if active {
-		cursor := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render("▌")
-		mn := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render(mnem)
+		accent := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
+		cursor := accent.Render("▌")
+		mn := accent.Render(mnem)
 		if !withLabel {
 			return cursor + mn
 		}
-		lab := lipgloss.NewStyle().Foreground(theme.ColorFG).Bold(true).Render(label)
-		count := activeCount(visibleCount, totalCount)
-		return cursor + mn + " " + lab + " " + count
+		return cursor + mn + " " + accent.Render(label) + " " + activeCount(visibleCount, totalCount)
 	}
 
-	mn := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render(mnem)
+	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted)
+	mn := muted.Render(mnem)
 	if !withLabel {
 		return " " + mn
 	}
-	lab := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(label)
-	count := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render(fmt.Sprintf("%d", it.Count))
-	return " " + mn + " " + lab + " " + count
+	return " " + mn + " " + muted.Render(label) + " " + muted.Render(fmt.Sprintf("%d", it.Count))
 }
 
-// activeCount renders the canonical filtered/total counter on the active nav
-// item: `T` (muted) when unfiltered, `V/T` (V in accent) when filtered.
+// activeCount renders the active item's count: `T` when unfiltered, `V/T`
+// when filtered. Both halves use the accent — V is bold, `/T` is regular —
+// so the eye still parses filtered-vs-total at a glance without introducing a
+// third color.
 func activeCount(visible, total int) string {
+	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent)
 	if visible == total {
-		return lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(fmt.Sprintf("%d", total))
+		return accent.Bold(true).Render(fmt.Sprintf("%d", total))
 	}
-	return lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render(fmt.Sprintf("%d", visible)) +
-		lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(fmt.Sprintf("/%d", total))
+	return accent.Bold(true).Render(fmt.Sprintf("%d", visible)) +
+		accent.Render(fmt.Sprintf("/%d", total))
 }
