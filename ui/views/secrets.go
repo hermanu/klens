@@ -3,9 +3,10 @@ package views
 import (
 	"context"
 	"fmt"
+	"sort"
 
-	"github.com/charmbracelet/lipgloss"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/hermanu/klens/k8s"
 	"github.com/hermanu/klens/k8s/resources"
 	"github.com/hermanu/klens/port"
@@ -21,14 +22,21 @@ const (
 	secretsModeEdit
 )
 
+// Column 0 is NAMESPACE so the row layout matches the other modern shell views
+// (pods/services/deployments). openEditor and selected() resolve the secret by
+// table index, not by reading row[0], to stay agnostic of the rendered NSChip.
 var secretCols = []components.Column{
-	{Header: "NAME", Width: 40},
+	{Header: "NAMESPACE", Width: 14},
+	{Header: "NAME", Width: 36},
 	{Header: "TYPE", Width: 28},
-	{Header: "KEYS", Width: 6},
-	{Header: "AGE", Width: 10},
+	{Header: "KEYS", Width: 6, Align: components.AlignRight},
+	{Header: "AGE", Width: 6, Align: components.AlignRight},
 }
 
-// SecretsView handles listing secrets and editing them in-place via the form component.
+// SecretsView lists secrets and edits them in-place via the form component.
+//
+// In edit mode, Table() returns the form body instead of the row table — the
+// shell still draws chrome (top bar / chips / command bar) around it.
 type SecretsView struct {
 	svc       port.SecretService
 	namespace string
@@ -37,15 +45,20 @@ type SecretsView struct {
 	form      components.Form
 	current   *resources.SecretItem
 	mode      secretsMode
+	filter    string
 	err       error
 	saveMsg   string
-	width     int
-	height    int
 }
 
 // secretDetailMsg carries a fetched SecretItem back to the view.
 type secretDetailMsg struct {
 	item resources.SecretItem
+}
+
+// secretsListedMsg carries the result of an async ListSecrets call.
+type secretsListedMsg struct {
+	items []resources.SecretItem
+	err   error
 }
 
 // SecretSavedMsg is sent after a save attempt (success or failure).
@@ -65,11 +78,18 @@ func NewSecretsView(svc port.SecretService, namespace string) SecretsView {
 func (v SecretsView) Update(msg tea.Msg) (SecretsView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case k8s.SecretsUpdatedMsg:
-		secs, err := v.svc.ListSecrets(context.Background(), v.namespace)
-		v.err = err
-		if err == nil {
-			v.secrets = secs
-			v.table = v.table.SetRows(secretRows(secs))
+		ns := v.namespace
+		svc := v.svc
+		return v, func() tea.Msg {
+			items, err := svc.ListSecrets(context.Background(), ns)
+			return secretsListedMsg{items: items, err: err}
+		}
+
+	case secretsListedMsg:
+		v.err = msg.err
+		if msg.err == nil {
+			v.secrets = msg.items
+			v.table = v.table.SetRows(v.rows())
 		}
 		return v, nil
 
@@ -91,16 +111,24 @@ func (v SecretsView) Update(msg tea.Msg) (SecretsView, tea.Cmd) {
 		}
 		return v, nil
 
+	case FilterMsg:
+		v.filter = msg.Query
+		v.table = v.table.SetRows(v.rows())
+		return v, nil
+
+	case NamespaceChangedMsg:
+		v.namespace = msg.Namespace
+		v.secrets = nil
+		v.mode = secretsModeList
+		v.current = nil
+		v.table = v.table.SetRows(nil)
+		return v, nil
+
 	case tea.KeyMsg:
 		if v.mode == secretsModeEdit {
 			return v.updateEdit(msg)
 		}
 		return v.updateList(msg)
-
-	case tea.WindowSizeMsg:
-		v.width = msg.Width
-		v.height = msg.Height
-		v.table = v.table.SetWidth(msg.Width)
 	}
 	return v, nil
 }
@@ -121,14 +149,17 @@ func (v SecretsView) updateList(msg tea.KeyMsg) (SecretsView, tea.Cmd) {
 	return v, nil
 }
 
+// openEditor resolves the focused row to a SecretItem by index (cell 0 is the
+// NSChip with ANSI codes, so reading the raw values from v.secrets is the only
+// reliable lookup).
 func (v SecretsView) openEditor() (SecretsView, tea.Cmd) {
-	row := v.table.SelectedRow()
-	if row == nil {
+	sec := v.selected()
+	if sec == nil {
 		return v, nil
 	}
-	name := row[0]
+	name := sec.Name
+	ns := sec.Namespace
 	svc := v.svc
-	ns := v.namespace
 	return v, func() tea.Msg {
 		item, err := svc.GetSecret(context.Background(), ns, name)
 		if err != nil {
@@ -170,37 +201,126 @@ func (v SecretsView) saveSecret() (SecretsView, tea.Cmd) {
 	}
 }
 
-func (v SecretsView) View() string {
+// selected resolves the table cursor back to a SecretItem from the visible
+// (post-filter) slice, then maps it to the underlying v.secrets entry so the
+// edit flow operates on the canonical record.
+func (v SecretsView) selected() *resources.SecretItem {
+	idx := v.table.SelectedIndex()
+	visible := v.visibleSecrets()
+	if idx < 0 || idx >= len(visible) {
+		return nil
+	}
+	s := visible[idx]
+	for i := range v.secrets {
+		if v.secrets[i].Name == s.Name && v.secrets[i].Namespace == s.Namespace {
+			return &v.secrets[i]
+		}
+	}
+	return nil
+}
+
+// Title implements views.View.
+func (v SecretsView) Title() string { return "secrets" }
+
+// Count implements views.View.
+func (v SecretsView) Count() (visible, total int) {
+	return len(v.visibleSecrets()), len(v.secrets)
+}
+
+// Chips implements views.View.
+func (v SecretsView) Chips() []layout.FilterChip {
+	chips := []layout.FilterChip{}
+	if v.mode == secretsModeEdit {
+		chips = append(chips, layout.FilterChip{Key: "mode", Value: "edit", Strong: true})
+	}
+	if v.filter != "" {
+		chips = append(chips, layout.FilterChip{Key: "/", Value: v.filter, Strong: true})
+	}
+	return chips
+}
+
+// KeyHints implements views.View — hints differ between list and edit mode so
+// the command bar always reflects what the focused pane actually does.
+// In list mode only Enter (open editor) and `/` are wired; yaml/delete live
+// in KeyMap as Soon entries.
+func (v SecretsView) KeyHints() []layout.KeyHint {
+	if v.mode == secretsModeEdit {
+		return []layout.KeyHint{
+			{Key: "ctrl+s", Label: "save"},
+			{Key: "esc", Label: "cancel"},
+			{Key: "tab", Label: "next field"},
+		}
+	}
+	return []layout.KeyHint{
+		{Key: "↵", Label: "edit"},
+		{Key: "/", Label: "filter"},
+	}
+}
+
+// KeyMap implements views.KeyMap and powers the `?` help overlay. In edit
+// mode it returns the editor keymap so the overlay matches the focused pane.
+func (v SecretsView) KeyMap() []components.KeySpec {
+	if v.mode == secretsModeEdit {
+		return []components.KeySpec{
+			{Key: "ctrl+s", Label: "save"},
+			{Key: "esc", Label: "cancel"},
+			{Key: "tab", Label: "next field"},
+			{Key: "ctrl+a", Label: "add row"},
+		}
+	}
+	return []components.KeySpec{
+		{Key: "↵", Label: "edit"},
+		{Key: "/", Label: "filter"},
+		{Key: "y", Label: "yaml", Soon: true},
+		{Key: "d", Label: "delete", Soon: true},
+	}
+}
+
+// Table implements views.View. In edit mode it returns the form body so the
+// shell can swap the central pane without re-routing render calls.
+func (v SecretsView) Table(width, height int) string {
 	if v.mode == secretsModeEdit && v.current != nil {
-		return v.viewEditor()
+		return v.formView()
 	}
-	return v.viewList()
-}
-
-func (v SecretsView) viewList() string {
-	header := layout.Header(v.width, layout.HeaderConfig{
-		Namespace: v.namespace,
-		Count:     len(v.secrets),
-		Total:     len(v.secrets),
-		Watching:  true,
-	})
-	body := v.table.View()
+	v.table = v.table.SetWidth(width).SetHeight(height)
 	if v.err != nil {
-		body = theme.Accent.Render("error: " + v.err.Error())
+		return "error: " + v.err.Error()
 	}
-	if v.saveMsg != "" {
-		body = theme.Mid.Render(v.saveMsg) + "\n" + body
-	}
-	statusbar := layout.StatusBar(v.width, []layout.KeyHint{
-		{Key: "j/k", Label: "navigate"},
-		{Key: "enter", Label: "edit"},
-		{Key: "d", Label: "delete"},
-		{Key: ":", Label: "command"},
-	}, "secrets")
-	return header + "\n" + body + statusbar
+	return v.table.View()
 }
 
-func (v SecretsView) viewEditor() string {
+// Details implements views.View. The pane stays informative in both list and
+// edit mode — showing the selected secret's namespace/type/keys/age.
+func (v SecretsView) Details(width, height int) string {
+	sec := v.selected()
+	// In edit mode v.current is the source of truth (cursor may have moved).
+	if v.mode == secretsModeEdit && v.current != nil {
+		sec = v.current
+	}
+	if sec == nil {
+		return ""
+	}
+	keys := make([]string, 0, len(sec.Data))
+	for k := range sec.Data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	kvs := []layout.KV{
+		{Key: "namespace", Value: sec.Namespace},
+		{Key: "type", Value: sec.Type},
+		{Key: "keys", Value: fmt.Sprintf("%d", sec.Keys)},
+		{Key: "age", Value: fmtAge(sec.Age)},
+	}
+	return layout.DefaultDetails(width, height, layout.DetailsBlock{
+		Title:    sec.Name,
+		Subtitle: sec.Namespace,
+		KVs:      kvs,
+	})
+}
+
+// formView renders just the editor body (title row + form + optional save
+// notice). The shell renders header/status chrome around it.
+func (v SecretsView) formView() string {
 	title := theme.Base.Render(fmt.Sprintf("  Secret: %s", v.current.Name)) +
 		"  " + theme.Faint.Render("namespace: "+v.namespace) + "\n"
 
@@ -211,23 +331,30 @@ func (v SecretsView) viewEditor() string {
 		notice = "\n" + lipgloss.NewStyle().Foreground(theme.ColorWarn).Render(v.saveMsg)
 	}
 
-	statusbar := layout.StatusBar(v.width, []layout.KeyHint{
-		{Key: "tab", Label: "next field"},
-		{Key: "↑↓", Label: "row"},
-		{Key: "ctrl+a", Label: "add key"},
-		{Key: "ctrl+d", Label: "delete key"},
-		{Key: "ctrl+h", Label: "toggle hide"},
-		{Key: "ctrl+s", Label: "save"},
-		{Key: "esc", Label: "cancel"},
-	}, "")
-
-	return title + "\n" + body + notice + "\n" + statusbar
+	return title + "\n" + body + notice
 }
 
-func secretRows(secs []resources.SecretItem) []components.Row {
-	rows := make([]components.Row, len(secs))
-	for i, s := range secs {
+// visibleSecrets applies v.filter (case-insensitive substring on name +
+// namespace + type).
+func (v SecretsView) visibleSecrets() []resources.SecretItem {
+	if v.filter == "" {
+		return v.secrets
+	}
+	out := make([]resources.SecretItem, 0, len(v.secrets))
+	for _, s := range v.secrets {
+		if matches(v.filter, s.Name, s.Namespace, s.Type) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func (v SecretsView) rows() []components.Row {
+	items := v.visibleSecrets()
+	rows := make([]components.Row, len(items))
+	for i, s := range items {
 		rows[i] = components.Row{
+			components.NSChip(s.Namespace),
 			s.Name,
 			s.Type,
 			fmt.Sprintf("%d", s.Keys),

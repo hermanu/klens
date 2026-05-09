@@ -42,6 +42,9 @@ func NewPalette(cmds []PaletteCmd) Palette {
 	}
 	ti := textinput.New()
 	ti.Focus()
+	// Drop the textinput's default "> " prompt — palette.View() draws its
+	// own accent "›" prompt, otherwise the line reads as a double-prompt.
+	ti.Prompt = ""
 	ti.Placeholder = "resource or command..."
 	ti.CharLimit = 64
 	return Palette{cmds: cmds, input: ti}
@@ -116,8 +119,8 @@ func (p Palette) Update(msg tea.Msg) (Palette, tea.Cmd) {
 func (p Palette) View(width int) string {
 	var sb strings.Builder
 
-	// Input line
-	sb.WriteString(theme.Accent.Render(":") + " " + p.input.View() + "\n")
+	// Input line — accent "›" prompt matches the bottom command bar.
+	sb.WriteString(theme.Accent.Render("›") + " " + p.input.View() + "\n")
 	sb.WriteString(theme.Divider(width) + "\n")
 
 	// Command list

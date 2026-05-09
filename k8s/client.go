@@ -49,3 +49,26 @@ func Contexts() ([]string, string, error) {
 	}
 	return names, raw.CurrentContext, nil
 }
+
+// ContextInfo bundles context + cluster + user names extracted from kubeconfig.
+type ContextInfo struct {
+	Context string
+	Cluster string
+	User    string
+}
+
+// CurrentContextInfo returns the cluster + user references for the current
+// kubeconfig context. Used by the top bar.
+func CurrentContextInfo() (ContextInfo, error) {
+	rules := clientcmd.NewDefaultClientConfigLoadingRules()
+	raw, err := rules.Load()
+	if err != nil {
+		return ContextInfo{}, err
+	}
+	info := ContextInfo{Context: raw.CurrentContext}
+	if ctx, ok := raw.Contexts[raw.CurrentContext]; ok && ctx != nil {
+		info.Cluster = ctx.Cluster
+		info.User = ctx.AuthInfo
+	}
+	return info, nil
+}

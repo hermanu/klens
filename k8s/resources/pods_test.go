@@ -54,3 +54,35 @@ func TestPodSvc_DeletePod(t *testing.T) {
 		t.Errorf("want 0 pods after delete, got %d", len(items))
 	}
 }
+
+func TestPodSvc_ListPodsForSelector(t *testing.T) {
+	// Two labeled pods + one unlabeled — the selector must match exactly the
+	// two with app=api so workload drill-down can scope multi-pod log tails.
+	fakeClient := fake.NewSimpleClientset(
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name: "api-1", Namespace: "default",
+			Labels: map[string]string{"app": "api"},
+		}},
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name: "api-2", Namespace: "default",
+			Labels: map[string]string{"app": "api"},
+		}},
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-1", Namespace: "default",
+			Labels: map[string]string{"app": "worker"},
+		}},
+	)
+
+	svc := resources.NewPodSvc(fakeClient)
+	items, err := svc.ListPodsForSelector(context.Background(), "default", map[string]string{"app": "api"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("want 2 pods matching app=api, got %d", len(items))
+	}
+	got := map[string]bool{items[0].Name: true, items[1].Name: true}
+	if !got["api-1"] || !got["api-2"] {
+		t.Errorf("want api-1 and api-2, got %v", got)
+	}
+}
