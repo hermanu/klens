@@ -25,67 +25,23 @@ func sampleTopBarCfg() layout.TopBarConfig {
 	}
 }
 
-// TestTopBar_ContainsKeyFragments asserts the redesigned bar still surfaces
-// each piece of identity / scope information the user relies on. Aggregate
-// counters (pods/dep/svc) were dropped from row 2 — the canonical
-// filtered/total count now anchors the row.
+// TestTopBar_ContainsKeyFragments asserts the redesigned single-row bar still
+// surfaces identity, namespace anchor, and the live indicator. Counts moved
+// to the nav strip so this row no longer carries the resource label or count.
 func TestTopBar_ContainsKeyFragments(t *testing.T) {
 	got := layout.TopBar(160, sampleTopBarCfg())
 	wants := []string{
 		"K L E N S",       // letter-spaced banner
 		"ctx", "prod-eks", // identity strip — context only
-		"v1.30.4",  // short k8s version (no -eks suffix)
-		"europa",   // namespace chip is the visual anchor
-		"pods",     // resource label on scope row
-		"23",       // canonical total count
-		"live",
-		"palette",
+		"v1.30.4", // short k8s version (no -eks suffix)
+		"europa",  // namespace chip is the visual anchor
+		"live",    // ● live indicator
 	}
 	for _, w := range wants {
 		if !strings.Contains(got, w) {
 			t.Errorf("want substring %q in TopBar output, got %q", w, got)
 		}
 	}
-}
-
-// TestTopBar_AnchorsCanonicalCount asserts the filtered/total count is
-// rendered on row 2 in two distinct formats:
-//   - "· 23" (single value) when nothing is filtered out
-//   - "4 of 23" when a filter is active
-//
-// This is what makes the count anchor — the column never moves, only the
-// number changes. We strip ANSI before asserting because the accent color on
-// the visible count splits the literal substring with escape codes.
-func TestTopBar_AnchorsCanonicalCount(t *testing.T) {
-	t.Run("unfiltered shows single total with leading dot", func(t *testing.T) {
-		cfg := sampleTopBarCfg()
-		cfg.VisibleCount = 23
-		cfg.TotalCount = 23
-		got := stripANSI(layout.TopBar(160, cfg))
-		if !strings.Contains(got, "· 23") {
-			t.Errorf("unfiltered should render '· 23', got %q", got)
-		}
-		if strings.Contains(got, " of ") {
-			t.Errorf("unfiltered must NOT include ' of ', got %q", got)
-		}
-	})
-	t.Run("filtered shows 'V of N'", func(t *testing.T) {
-		cfg := sampleTopBarCfg()
-		cfg.VisibleCount = 4
-		cfg.TotalCount = 23
-		got := stripANSI(layout.TopBar(160, cfg))
-		if !strings.Contains(got, "4 of 23") {
-			t.Errorf("filtered should render '4 of 23', got %q", got)
-		}
-	})
-	t.Run("resource label still renders", func(t *testing.T) {
-		cfg := sampleTopBarCfg()
-		cfg.Resource = "pods"
-		got := stripANSI(layout.TopBar(160, cfg))
-		if !strings.Contains(got, "pods") {
-			t.Errorf("expected resource label 'pods' in output, got %q", got)
-		}
-	})
 }
 
 // TestTopBar_DropsRedundantArn asserts that long ARN-style identifiers
@@ -114,11 +70,18 @@ func TestTopBar_ShortensK8sVersion(t *testing.T) {
 	}
 }
 
-func TestTopBar_WidthClamp(t *testing.T) {
+// TestTopBar_TwoRowsAtAnyWidth asserts the bar is exactly 2 rows tall (1
+// content + 1 divider). The horizontal nav strip is rendered separately by
+// the shell, so the top bar must never grow vertically.
+func TestTopBar_TwoRowsAtAnyWidth(t *testing.T) {
 	cfg := sampleTopBarCfg()
 	for _, w := range []int{80, 120, 160, 200} {
 		got := layout.TopBar(w, cfg)
-		for _, line := range strings.Split(got, "\n") {
+		lines := strings.Split(got, "\n")
+		if len(lines) != 2 {
+			t.Errorf("TopBar(width=%d): want 2 rows, got %d: %q", w, len(lines), got)
+		}
+		for _, line := range lines {
 			if lipgloss.Width(line) > w {
 				t.Errorf("TopBar(width=%d): line width %d exceeds clamp: %q",
 					w, lipgloss.Width(line), line)
