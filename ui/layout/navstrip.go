@@ -9,18 +9,21 @@ import (
 )
 
 // NavStrip renders the horizontal resource navigation bar that sits directly
-// under the top bar. Each item is a compact `MNEMONIC label COUNT` block; the
-// active item is highlighted with an accent `▌` cursor and bold accent text.
+// under the top bar. Each item is a compact `[N] label count` block; the
+// active item is highlighted with bold accent text + brackets in accent.
 //
-//	▌1 pods 4/23   2 deployments 14   3 services 12   4 secrets 8   ...
+//	▌[1] pods 4/23   [2] deployments 14   [3] services 12   ...
 //
-// The active item's count is shown as `V/T` when filtered (V in accent), or
-// just `T` when unfiltered. Inactive items always show their total. Anchoring
-// the count on the active item keeps it grep-able at a stable position
-// without reserving a fixed column on the top bar.
+// Bracketed mnemonics (`[1]`, `[2]`, ...) keep the key glyph visually
+// distinct from the count number that follows the label — without the
+// brackets, `1 pods 56` reads as two numbers with no clue which is which.
 //
-// At narrow widths the strip drops labels and shows mnemonics only so the
-// keyboard map stays visible even on a 60-col terminal.
+// The active item's count is `V/T` when filtered (V bold accent, /T regular
+// accent), or just `T` when unfiltered. Inactive items always show their
+// total in muted. Two-tone palette only (muted + accent), no third color.
+//
+// The strip is centered across `width` so it visually aligns with the
+// banner above. At narrow widths it falls back to bracketed mnemonics only.
 func NavStrip(width int, cfg NavStripConfig) string {
 	if width < 1 {
 		width = 1
@@ -29,17 +32,31 @@ func NavStrip(width int, cfg NavStripConfig) string {
 	itemsFull := renderItems(cfg, true)
 	full := strings.Join(itemsFull, "   ")
 	if lipgloss.Width(full) <= width-2 {
-		return wrapStrip(width, full)
+		return centerStrip(width, full)
 	}
 
-	// Narrow fallback: mnemonics-only.
+	// Narrow fallback: bracketed mnemonics only.
 	itemsCompact := renderItems(cfg, false)
 	compact := strings.Join(itemsCompact, "  ")
-	return wrapStrip(width, compact)
+	return centerStrip(width, compact)
 }
 
-func wrapStrip(width int, line string) string {
-	return lipgloss.NewStyle().Padding(0, 1).Width(width).Render(line)
+// centerStrip places `line` horizontally centered within `width`. Falls back
+// to left-padding(1) if `line` already fills the row.
+func centerStrip(width int, line string) string {
+	contentW := lipgloss.Width(line)
+	if contentW >= width-2 {
+		return lipgloss.NewStyle().Padding(0, 1).Width(width).Render(line)
+	}
+	leftPad := (width - contentW) / 2
+	if leftPad < 1 {
+		leftPad = 1
+	}
+	rightPad := width - leftPad - contentW
+	if rightPad < 0 {
+		rightPad = 0
+	}
+	return strings.Repeat(" ", leftPad) + line + strings.Repeat(" ", rightPad)
 }
 
 func renderItems(cfg NavStripConfig, withLabel bool) []string {
@@ -51,30 +68,28 @@ func renderItems(cfg NavStripConfig, withLabel bool) []string {
 }
 
 // Two-tone palette: every inactive cell renders in muted; the active item
-// renders in accent (bold). No third color, no per-token shade gradient — the
-// user feedback was that mixing fg / muted / muted2 made the strip hard to
-// scan. The only intra-item contrast on the active cell is bold-vs-regular
-// for the V/T split when filtered (V bold, /T regular).
+// renders in accent (bold). The mnemonic is wrapped in `[N]` brackets so it
+// reads as a key glyph instead of getting confused with the count number
+// that follows the label.
 func renderNavItem(it NavItem, active, withLabel bool, visibleCount, totalCount int) string {
-	mnem := it.Mnemonic
+	mnem := "[" + it.Mnemonic + "]"
 	label := strings.ToLower(it.Label)
 
 	if active {
 		accent := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
-		cursor := accent.Render("▌")
 		mn := accent.Render(mnem)
 		if !withLabel {
-			return cursor + mn
+			return mn
 		}
-		return cursor + mn + " " + accent.Render(label) + " " + activeCount(visibleCount, totalCount)
+		return mn + " " + accent.Render(label) + " " + activeCount(visibleCount, totalCount)
 	}
 
 	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted)
 	mn := muted.Render(mnem)
 	if !withLabel {
-		return " " + mn
+		return mn
 	}
-	return " " + mn + " " + muted.Render(label) + " " + muted.Render(fmt.Sprintf("%d", it.Count))
+	return mn + " " + muted.Render(label) + " " + muted.Render(fmt.Sprintf("%d", it.Count))
 }
 
 // activeCount renders the active item's count: `T` when unfiltered, `V/T`

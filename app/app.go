@@ -42,7 +42,7 @@ const (
 const (
 	detailsWidth   = 44
 	topBarHeight   = 2 // 1 content row + 1 divider
-	navStripHeight = 1
+	navStripHeight = 2 // 1 content row + 1 divider so the strip reads as its own band
 	cmdBarHeight   = 1
 	chipsHeight    = 1
 	minDetailsAt   = 120
@@ -674,6 +674,10 @@ func (m Model) View() string {
 		VisibleCount: visible,
 		TotalCount:   total,
 	})
+	navDiv := lipgloss.NewStyle().
+		Foreground(theme.ColorBorder).
+		Render(strings.Repeat("─", m.width))
+	nav = lipgloss.JoinVertical(lipgloss.Left, nav, navDiv)
 
 	// Sub-views (logs, describe, genericDescribe) take the full content area —
 	// hide the right details pane so their content isn't squashed.

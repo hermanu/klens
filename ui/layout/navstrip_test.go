@@ -37,16 +37,22 @@ func TestNavStrip_RendersItemsWithCounts(t *testing.T) {
 	}
 }
 
-// TestNavStrip_ActiveCursor asserts the active item gets the `▌` cursor.
-func TestNavStrip_ActiveCursor(t *testing.T) {
+// TestNavStrip_BracketedMnemonics asserts every mnemonic is wrapped in
+// `[N]` brackets so the key glyph reads as a key and not as a number.
+func TestNavStrip_BracketedMnemonics(t *testing.T) {
 	got := stripANSI(layout.NavStrip(180, layout.NavStripConfig{
 		Items:        sampleNavItems(),
 		Current:      "pods",
 		VisibleCount: 23,
 		TotalCount:   23,
 	}))
-	if !strings.Contains(got, "▌1 pods") {
-		t.Errorf("active item should render `▌1 pods` cursor, got %q", got)
+	for _, m := range []string{"[1]", "[2]", "[3]", "[4]", "[5]", "[6]", "[7]", "[8]"} {
+		if !strings.Contains(got, m) {
+			t.Errorf("expected bracketed mnemonic %q in NavStrip, got %q", m, got)
+		}
+	}
+	if !strings.Contains(got, "[1] pods") {
+		t.Errorf("active item should render `[1] pods`, got %q", got)
 	}
 }
 
