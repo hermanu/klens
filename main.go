@@ -9,6 +9,13 @@ import (
 	k8sclient "github.com/manu/klens/k8s"
 )
 
+// Set by GoReleaser at build time via -ldflags.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	m, err := app.New()
 	if err != nil {
