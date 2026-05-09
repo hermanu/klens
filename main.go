@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -17,7 +18,19 @@ var (
 )
 
 func main() {
-	m, err := app.New()
+	var (
+		kubeconfig  = flag.String("kubeconfig", "", "Path to kubeconfig (overrides config file and KUBECONFIG env var)")
+		namespace   = flag.String("namespace", "", "Default namespace (overrides config file)")
+		showVersion = flag.Bool("version", false, "Print version and exit")
+	)
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("klens %s (commit %s, built %s)\n", version, commit, date)
+		return
+	}
+
+	m, err := app.New(*kubeconfig, *namespace)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
