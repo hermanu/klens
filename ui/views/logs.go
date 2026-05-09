@@ -226,9 +226,14 @@ func (v LogsView) KeyHints() []layout.KeyHint {
 	}
 }
 
-// Table implements views.View — but here it's the full-screen log body. The
-// shell hides the right-hand details pane when this view is active so the
-// logs get the entire content width.
+// Table implements views.View — full-screen log body. The shell hides the
+// right details pane while logs is active so the body gets the full width.
+//
+// Long messages soft-wrap onto multiple visual rows; pagination operates over
+// rendered rows (not log entries), so a verbose multi-line stack trace doesn't
+// silently push older entries off the visible window. Wrapped continuations
+// are indented to align under the message column, not the timestamp — so the
+// eye can pick which bytes belong to which log entry at a glance.
 func (v LogsView) Table(width, height int) string {
 	visible := v.visibleLines()
 	if len(visible) == 0 {
@@ -240,9 +245,17 @@ func (v LogsView) Table(width, height int) string {
 	if pageSize < 1 {
 		pageSize = 20
 	}
-	// In follow mode we always pin to the newest lines.
+	multi := len(v.podSet) > 1
+
+	// Flatten every log entry into rendered rows so wrap-aware pagination is
+	// easy. Rows includes the continuation lines from any wrapped message.
+	rows := make([]string, 0, len(visible))
+	for _, l := range visible {
+		rows = append(rows, strings.Split(formatLogRow(width, l, multi), "\n")...)
+	}
+
 	start := 0
-	end := len(visible)
+	end := len(rows)
 	if v.follow || v.offset < 0 {
 		if end > pageSize {
 			start = end - pageSize
@@ -256,20 +269,19 @@ func (v LogsView) Table(width, height int) string {
 			start = 0
 		}
 		end = start + pageSize
-		if end > len(visible) {
-			end = len(visible)
+		if end > len(rows) {
+			end = len(rows)
 		}
 	}
 
-	multi := len(v.podSet) > 1
 	var sb strings.Builder
 	for i := start; i < end; i++ {
-		sb.WriteString(formatLogRow(width, visible[i], multi))
+		sb.WriteString(rows[i])
 		sb.WriteString("\n")
 	}
 	hint := lipgloss.NewStyle().
 		Foreground(theme.ColorMuted).
-		Render("  " + countHint(start+1, end, len(visible)))
+		Render("  " + countHint(start+1, end, len(rows)))
 	sb.WriteString(hint)
 	return sb.String()
 }
@@ -320,29 +332,76 @@ func formatLogRow(width int, l resources.LogLine, multi bool) string {
 	// Multi-pod tails prefix every line with [pod-name] in a stable per-pod
 	// color so adjacent lines from different pods are visually separable.
 	// Single-pod tails skip the prefix — the chip strip already identifies the
-	// source and adding it per-line is just noise.
+	// source and adding it per-line would be noise.
 	podPrefix := ""
-	prefixCols := 0
+	podCols := 0
 	if multi && l.Pod != "" {
 		tag := lipgloss.NewStyle().
 			Foreground(theme.NSColorAny(l.Pod)).
 			Render("[" + l.Pod + "]")
 		podPrefix = tag + " "
-		prefixCols = lipgloss.Width(tag) + 1
+		podCols = lipgloss.Width(tag) + 1
 	}
 
-	// Reserve cols for timestamp + level + (optional pod prefix) + spaces.
-	prefixWidth := lipgloss.Width(ts) + 1 + lipgloss.Width(lvl) + 1 + prefixCols
-	msgWidth := width - prefixWidth - 2
-	if msgWidth < 10 {
-		msgWidth = 10
+	// Reserve cols for timestamp + level + (optional pod prefix) + a trailing
+	// space. The message column gets whatever remains; we soft-wrap into that
+	// width so long stack traces stay readable instead of being truncated.
+	prefixCols := lipgloss.Width(ts) + 1 + lipgloss.Width(lvl) + 1 + podCols
+	msgWidth := width - prefixCols - 1
+	if msgWidth < 20 {
+		msgWidth = 20
 	}
-	msg := l.Message
-	if lipgloss.Width(msg) > msgWidth {
-		msg = truncateRunes(msg, msgWidth)
+
+	msgStyle := lipgloss.NewStyle().Foreground(theme.ColorFG2)
+	chunks := wrapMessage(l.Message, msgWidth)
+	if len(chunks) == 0 {
+		chunks = []string{""}
 	}
-	msgCol := lipgloss.NewStyle().Foreground(theme.ColorFG2).Render(msg)
-	return tsCol + " " + lvl + " " + podPrefix + msgCol
+
+	header := tsCol + " " + lvl + " " + podPrefix
+	indent := strings.Repeat(" ", prefixCols)
+	var sb strings.Builder
+	for i, c := range chunks {
+		if i == 0 {
+			sb.WriteString(header + msgStyle.Render(c))
+		} else {
+			sb.WriteString(indent + msgStyle.Render(c))
+		}
+		if i < len(chunks)-1 {
+			sb.WriteString("\n")
+		}
+	}
+	return sb.String()
+}
+
+// wrapMessage splits `s` into chunks ≤ width display cells. The split is on
+// cell boundaries (no word-aware breaking) — a log message is plain text and
+// programs frequently emit long unbroken paths/tokens, so cell-boundary
+// wrapping is more predictable than greedy-word-wrap.
+func wrapMessage(s string, width int) []string {
+	if width < 1 {
+		return []string{""}
+	}
+	if lipgloss.Width(s) <= width {
+		return []string{s}
+	}
+	var out []string
+	var line strings.Builder
+	cells := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if cells+rw > width {
+			out = append(out, line.String())
+			line.Reset()
+			cells = 0
+		}
+		line.WriteRune(r)
+		cells += rw
+	}
+	if line.Len() > 0 {
+		out = append(out, line.String())
+	}
+	return out
 }
 
 func countHint(start, end, total int) string {
@@ -355,28 +414,6 @@ func countHint(start, end, total int) string {
 // strFmt is a tiny helper kept inline to avoid pulling fmt for one Sprintf.
 func strFmt(a, b, c int) string {
 	return itoa(a) + "–" + itoa(b) + " of " + itoa(c)
-}
-
-// truncateRunes clamps a plain (no-ANSI) string to at most maxWidth display
-// columns. The logs view emits log message text, which is plaintext.
-func truncateRunes(s string, maxWidth int) string {
-	if maxWidth < 1 {
-		return ""
-	}
-	if lipgloss.Width(s) <= maxWidth {
-		return s
-	}
-	var b strings.Builder
-	w := 0
-	for _, r := range s {
-		rw := lipgloss.Width(string(r))
-		if w+rw > maxWidth {
-			break
-		}
-		b.WriteRune(r)
-		w += rw
-	}
-	return b.String()
 }
 
 func itoa(n int) string {
