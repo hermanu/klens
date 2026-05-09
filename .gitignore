@@ -1,0 +1,23 @@
+# Compiled binary
+/klens
+/klens.exe
+
+# GoReleaser output
+/dist/
+
+# Test/coverage artifacts
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Claude Code per-user settings
+.claude/settings.local.json
+.claude.local.md
