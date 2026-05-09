@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -27,11 +28,20 @@ func (s *SecretSvc) ListSecrets(ctx context.Context, namespace string) ([]Secret
 	}
 	items := make([]SecretItem, 0, len(list.Items))
 	for _, sec := range list.Items {
+		// KeyNames — sorted preview so the SPEC pane can show the top-N keys.
+		// Storing names (not values) is cheap; the actual []byte values stay
+		// in Data, which is intentionally omitted from list mode.
+		names := make([]string, 0, len(sec.Data))
+		for k := range sec.Data {
+			names = append(names, k)
+		}
+		sort.Strings(names)
 		items = append(items, SecretItem{
 			Name:      sec.Name,
 			Namespace: sec.Namespace,
 			Type:      string(sec.Type),
 			Keys:      len(sec.Data),
+			KeyNames:  names,
 			Age:       time.Since(sec.CreationTimestamp.Time),
 			// Data intentionally omitted — too expensive to decode for every row
 		})

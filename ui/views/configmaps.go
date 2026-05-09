@@ -293,8 +293,9 @@ func (v ConfigMapsView) Table(width, height int) string {
 	return v.table.View()
 }
 
-// Details implements views.View. Lists a few key names underneath the spec
-// block so the pane is informative even before the user opens the editor.
+// Details implements views.View. Renders a uniform SPEC block driven by
+// focusKVs() — keys count and a top-5 alphabetic key preview so users see
+// what's inside without opening the editor.
 func (v ConfigMapsView) Details(width, height int) string {
 	cm := v.selected()
 	if v.mode == configMapsModeEdit && v.current != nil {
@@ -303,29 +304,43 @@ func (v ConfigMapsView) Details(width, height int) string {
 	if cm == nil {
 		return ""
 	}
-	keys := make([]string, 0, len(cm.Data))
-	for k := range cm.Data {
-		keys = append(keys, k)
+	return layout.DefaultDetails(width, height, layout.DetailsBlock{
+		Title:    cm.Name,
+		Subtitle: fmt.Sprintf("%s · %s", cm.Namespace, fmtAge(cm.Age)),
+		KVs:      v.focusKVs(),
+	})
+}
+
+// focusKVs returns the SPEC fields for the focused configmap. Same shape as
+// the secrets pane: count + top-5 key names + age. ConfigMaps don't have a
+// type field so we omit that row.
+func (v ConfigMapsView) focusKVs() []layout.KV {
+	cm := v.selected()
+	if v.mode == configMapsModeEdit && v.current != nil {
+		cm = v.current
 	}
-	sort.Strings(keys)
+	if cm == nil {
+		return nil
+	}
+	keys := cm.KeyNames
+	if len(keys) == 0 && len(cm.Data) > 0 {
+		keys = make([]string, 0, len(cm.Data))
+		for k := range cm.Data {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+	}
 	kvs := []layout.KV{
-		{Key: "namespace", Value: cm.Namespace},
 		{Key: "keys", Value: fmt.Sprintf("%d", cm.Keys)},
-		{Key: "age", Value: fmtAge(cm.Age)},
 	}
 	for i, k := range keys {
-		// Cap the preview at 6 keys — the pane is height-clamped and we don't
-		// want a single configmap dominating the right column.
-		if i >= 6 {
+		if i >= 5 {
 			break
 		}
 		kvs = append(kvs, layout.KV{Key: "  · " + k, Value: ""})
 	}
-	return layout.DefaultDetails(width, height, layout.DetailsBlock{
-		Title:    cm.Name,
-		Subtitle: cm.Namespace,
-		KVs:      kvs,
-	})
+	kvs = append(kvs, layout.KV{Key: "age", Value: fmtAge(cm.Age)})
+	return kvs
 }
 
 // formView renders just the editor body. The shell renders chrome around it.
@@ -343,15 +358,16 @@ func (v ConfigMapsView) formView() string {
 	return title + "\n" + body + notice
 }
 
-// visibleConfigMaps applies v.filter (case-insensitive substring on name +
-// namespace).
+// visibleConfigMaps applies v.filter through matchesFields. Fields included:
+// name, namespace — configmaps don't have a type or status column to match
+// against, so the surface is intentionally narrow.
 func (v ConfigMapsView) visibleConfigMaps() []resources.ConfigMapItem {
 	if v.filter == "" {
 		return v.configmaps
 	}
 	out := make([]resources.ConfigMapItem, 0, len(v.configmaps))
 	for _, c := range v.configmaps {
-		if matches(v.filter, c.Name, c.Namespace) {
+		if matchesFields(v.filter, c.Name, c.Namespace) {
 			out = append(out, c)
 		}
 	}

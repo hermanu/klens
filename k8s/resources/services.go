@@ -35,6 +35,15 @@ func (s *ServiceSvc) ListServices(ctx context.Context, namespace string) ([]Serv
 func svcToItem(svc corev1.Service) ServiceItem {
 	externalIP := externalIPs(svc)
 	ports := formatPorts(svc.Spec.Ports)
+	// Selector — flat copy so callers in the views layer can pass it through
+	// PodService.ListPodsForSelector without depending on client-go types.
+	var selector map[string]string
+	if len(svc.Spec.Selector) > 0 {
+		selector = make(map[string]string, len(svc.Spec.Selector))
+		for k, v := range svc.Spec.Selector {
+			selector[k] = v
+		}
+	}
 	return ServiceItem{
 		Name:       svc.Name,
 		Namespace:  svc.Namespace,
@@ -42,6 +51,7 @@ func svcToItem(svc corev1.Service) ServiceItem {
 		ClusterIP:  svc.Spec.ClusterIP,
 		ExternalIP: externalIP,
 		Ports:      ports,
+		Selector:   selector,
 		Age:        time.Since(svc.CreationTimestamp.Time),
 	}
 }

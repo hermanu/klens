@@ -24,9 +24,19 @@ func (s *NamespaceSvc) ListNamespaces(ctx context.Context) ([]NamespaceItem, err
 	}
 	items := make([]NamespaceItem, 0, len(list.Items))
 	for _, n := range list.Items {
+		// Labels — flat copy so the views layer (which doesn't import client-go)
+		// can render the top-N preview in the SPEC pane without touching meta types.
+		var labels map[string]string
+		if len(n.Labels) > 0 {
+			labels = make(map[string]string, len(n.Labels))
+			for k, v := range n.Labels {
+				labels[k] = v
+			}
+		}
 		items = append(items, NamespaceItem{
 			Name:   n.Name,
 			Status: string(n.Status.Phase),
+			Labels: labels,
 			Age:    time.Since(n.CreationTimestamp.Time),
 		})
 	}

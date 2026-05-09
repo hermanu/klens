@@ -16,10 +16,17 @@ import (
 const logBufferMax = 5000
 
 // SwitchToLogsMsg asks the root model to focus the dedicated full-screen logs
-// view. PodsView emits this on `l` / Enter alongside a LogTailRequestMsg.
+// view. List views (pods, deployments, services, nodes) emit this on `l`
+// alongside a LogTailRequestMsg.
+//
+// Pods carries one entry for a single-pod tail and N entries when the source
+// is an owner (deployment/service/node). Title is the chip-strip caption — e.g.
+// "pod/api-7d9-xyz", "deployment/foo", "node/ip-10-0-1-2" — so users see the
+// scope of the tail at a glance regardless of pod count.
 type SwitchToLogsMsg struct {
 	Namespace string
-	Pod       string
+	Pods      []string
+	Title     string
 }
 
 // BackToPodsMsg asks the root model to return from the logs view back to pods.
@@ -43,9 +50,14 @@ var rangePresets = []struct {
 
 // LogsView is the full-screen log tail. It owns its own scroll state so j/k
 // can pause auto-follow and let the user inspect older lines.
+//
+// In multi-pod mode (deployment / service / node fan-out) podSet is non-empty
+// and lines render with a colored `[pod-name]` prefix; in single-pod mode the
+// prefix is suppressed since the namespace+pod chips already identify the source.
 type LogsView struct {
 	namespace string
-	pod       string
+	title     string              // chip caption — e.g. "deployment/foo", "pod/api-7d9-xyz"
+	podSet    map[string]struct{} // empty for single-pod tails; populated when N>1
 	lines     []resources.LogLine
 	offset    int   // first visible line; -1 means follow tail
 	follow    bool  // auto-scroll to newest when true
@@ -59,10 +71,20 @@ func NewLogsView() LogsView {
 	return LogsView{follow: true, since: 1800}
 }
 
-// WithFocus resets the view to a clean buffer for a new pod.
-func (v LogsView) WithFocus(namespace, pod string) LogsView {
+// WithFocus resets the view to a clean buffer for a new pod set. `pods` is the
+// list of pods being tailed; `title` is the chip caption (e.g. "deployment/foo"
+// or "pod/api-7d9-xyz"). For single-pod tails, podSet stays empty so the
+// rendering skips the per-line `[pod-name]` prefix.
+func (v LogsView) WithFocus(namespace string, pods []string, title string) LogsView {
 	v.namespace = namespace
-	v.pod = pod
+	v.title = title
+	v.podSet = nil
+	if len(pods) > 1 {
+		v.podSet = make(map[string]struct{}, len(pods))
+		for _, p := range pods {
+			v.podSet[p] = struct{}{}
+		}
+	}
 	v.lines = nil
 	v.offset = -1
 	v.follow = true
@@ -75,9 +97,14 @@ func (v LogsView) WithFocus(namespace, pod string) LogsView {
 func (v LogsView) Update(msg tea.Msg) (LogsView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case k8s.LogLineMsg:
-		// Drop lines from other pods (e.g. lingering after a focus switch).
-		if v.pod != "" && msg.Line.Pod != "" && msg.Line.Pod != v.pod {
-			return v, nil
+		// In multi-pod mode, accept any pod in the active set; lingering lines
+		// from a previous focus that no longer match are dropped. In single-pod
+		// mode (podSet empty) the watcher already filters per the active stream
+		// so we accept everything.
+		if len(v.podSet) > 0 && msg.Line.Pod != "" {
+			if _, ok := v.podSet[msg.Line.Pod]; !ok {
+				return v, nil
+			}
 		}
 		v.lines = append(v.lines, msg.Line)
 		if len(v.lines) > logBufferMax {
@@ -117,15 +144,17 @@ func (v LogsView) Update(msg tea.Msg) (LogsView, tea.Cmd) {
 		}
 		// Range shortcuts 0-5: change the lookback window. We restart the
 		// stream with the new SinceSeconds and clear the existing buffer so
-		// the visible content reflects the chosen window.
+		// the visible content reflects the chosen window. The pod set is
+		// preserved across re-streams so deployment/service tails don't
+		// collapse to a single pod when the window changes.
 		for _, p := range rangePresets {
 			if msg.String() == p.key {
 				v.since = p.seconds
 				v.lines = nil
 				v.follow = true
-				ns, pod, sec := v.namespace, v.pod, p.seconds
+				ns, pods, sec := v.namespace, v.activePods(), p.seconds
 				return v, func() tea.Msg {
-					return LogTailRequestMsg{Namespace: ns, Pods: []string{pod}, SinceSeconds: sec}
+					return LogTailRequestMsg{Namespace: ns, Pods: pods, SinceSeconds: sec}
 				}
 			}
 		}
@@ -142,11 +171,25 @@ func (v LogsView) Count() (visible, total int) {
 	return len(v.visibleLines()), len(v.lines)
 }
 
-// Chips implements views.View.
+// Chips implements views.View. The scope chip's key is "pods" when fanning out
+// across an owner (deployment/service/node) and "pod" for a single-pod tail —
+// either way the value carries the user-facing title (`deployment/foo`,
+// `pod/api-7d9-xyz`) so the chip strip identifies the source unambiguously.
 func (v LogsView) Chips() []layout.FilterChip {
+	scopeKey := "pod"
+	if len(v.podSet) > 1 {
+		scopeKey = "pods"
+	}
+	value := v.title
+	if value == "" && len(v.podSet) == 1 {
+		// Single-pod tail with no explicit title — fall back to the bare pod name.
+		for p := range v.podSet {
+			value = "pod/" + p
+		}
+	}
 	chips := []layout.FilterChip{
 		{Key: "ns", Value: fallbackOr(v.namespace)},
-		{Key: "pod", Value: fallbackOr(v.pod)},
+		{Key: scopeKey, Value: fallbackOr(value)},
 	}
 	if v.follow {
 		chips = append(chips, layout.FilterChip{Key: "tail", Value: "live", Strong: true})
@@ -157,6 +200,19 @@ func (v LogsView) Chips() []layout.FilterChip {
 		chips = append(chips, layout.FilterChip{Key: "/", Value: v.filter, Strong: true})
 	}
 	return chips
+}
+
+// activePods returns the current pod set in slice form, used when restarting
+// the stream after a range-preset change.
+func (v LogsView) activePods() []string {
+	if len(v.podSet) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(v.podSet))
+	for p := range v.podSet {
+		out = append(out, p)
+	}
+	return out
 }
 
 // KeyHints implements views.View.
@@ -205,9 +261,10 @@ func (v LogsView) Table(width, height int) string {
 		}
 	}
 
+	multi := len(v.podSet) > 1
 	var sb strings.Builder
 	for i := start; i < end; i++ {
-		sb.WriteString(formatLogRow(width, visible[i]))
+		sb.WriteString(formatLogRow(width, visible[i], multi))
 		sb.WriteString("\n")
 	}
 	hint := lipgloss.NewStyle().
@@ -240,7 +297,7 @@ func (v LogsView) visibleLines() []resources.LogLine {
 	return out
 }
 
-func formatLogRow(width int, l resources.LogLine) string {
+func formatLogRow(width int, l resources.LogLine, multi bool) string {
 	ts := l.Time.Format("15:04:05.000")
 	tsCol := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render(ts)
 	level := l.Level
@@ -259,8 +316,23 @@ func formatLogRow(width int, l resources.LogLine) string {
 		levelStyle = levelStyle.Foreground(theme.ColorMid)
 	}
 	lvl := levelStyle.Render(level)
-	// Reserve a few cols for timestamp + level + spaces.
-	prefixWidth := lipgloss.Width(ts) + 1 + lipgloss.Width(lvl) + 1
+
+	// Multi-pod tails prefix every line with [pod-name] in a stable per-pod
+	// color so adjacent lines from different pods are visually separable.
+	// Single-pod tails skip the prefix — the chip strip already identifies the
+	// source and adding it per-line is just noise.
+	podPrefix := ""
+	prefixCols := 0
+	if multi && l.Pod != "" {
+		tag := lipgloss.NewStyle().
+			Foreground(theme.NSColorAny(l.Pod)).
+			Render("[" + l.Pod + "]")
+		podPrefix = tag + " "
+		prefixCols = lipgloss.Width(tag) + 1
+	}
+
+	// Reserve cols for timestamp + level + (optional pod prefix) + spaces.
+	prefixWidth := lipgloss.Width(ts) + 1 + lipgloss.Width(lvl) + 1 + prefixCols
 	msgWidth := width - prefixWidth - 2
 	if msgWidth < 10 {
 		msgWidth = 10
@@ -270,7 +342,7 @@ func formatLogRow(width int, l resources.LogLine) string {
 		msg = truncateRunes(msg, msgWidth)
 	}
 	msgCol := lipgloss.NewStyle().Foreground(theme.ColorFG2).Render(msg)
-	return tsCol + " " + lvl + " " + msgCol
+	return tsCol + " " + lvl + " " + podPrefix + msgCol
 }
 
 func countHint(start, end, total int) string {

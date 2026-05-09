@@ -17,6 +17,11 @@ type PodService interface {
 	// label-selector map. Used by deployment/service/etc. drill-down to scope
 	// log aggregation.
 	ListPodsForSelector(ctx context.Context, namespace string, selector map[string]string) ([]resources.PodItem, error)
+	// ListPodsOnNode returns every pod scheduled onto the named node. Used by
+	// the nodes view's `l` to fan out a multi-pod log tail across the node's
+	// workload — selectors don't apply (nodes are cluster-scoped, not labeled
+	// onto workloads), so this is a separate spec.nodeName field-selector path.
+	ListPodsOnNode(ctx context.Context, nodeName string) ([]resources.PodItem, error)
 }
 
 // DeploymentService is the port for deployment operations.

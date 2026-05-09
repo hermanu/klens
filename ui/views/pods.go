@@ -143,8 +143,11 @@ func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
 			// adjust the lookback range with digit shortcuts.
 			if pod := v.SelectedPod(); pod != nil {
 				ns, name := pod.Namespace, pod.Name
+				title := "pod/" + name
 				return v, tea.Batch(
-					func() tea.Msg { return SwitchToLogsMsg{Namespace: ns, Pod: name} },
+					func() tea.Msg {
+						return SwitchToLogsMsg{Namespace: ns, Pods: []string{name}, Title: title}
+					},
 					func() tea.Msg {
 						return LogTailRequestMsg{Namespace: ns, Pods: []string{name}, SinceSeconds: 1800}
 					},
@@ -258,15 +261,16 @@ func (v PodsView) Details(width, height int) string {
 	})
 }
 
-// visiblePods returns the pods slice after applying v.filter (case-insensitive
-// substring match on name, namespace, status, node).
+// visiblePods returns the pods slice after applying v.filter through the
+// shared matchesFields helper. Fields included: name, namespace, status,
+// ready, node, IP — every stringy column the user sees in the table.
 func (v PodsView) visiblePods() []resources.PodItem {
 	if v.filter == "" {
 		return v.pods
 	}
 	out := make([]resources.PodItem, 0, len(v.pods))
 	for _, p := range v.pods {
-		if matches(v.filter, p.Name, p.Namespace, p.Status, p.Node) {
+		if matchesFields(v.filter, p.Name, p.Namespace, p.Status, p.Ready, p.Node, p.IP) {
 			out = append(out, p)
 		}
 	}

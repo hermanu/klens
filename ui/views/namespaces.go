@@ -2,6 +2,9 @@ package views
 
 import (
 	"context"
+	"fmt"
+	"sort"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/hermanu/klens/k8s"
@@ -144,38 +147,72 @@ func (v NamespacesView) Table(width, height int) string {
 	return v.table.View()
 }
 
-// Details implements views.View.
+// Details implements views.View. Renders a uniform SPEC block driven by
+// focusKVs() — status, top labels, age. Labels are sorted alphabetically and
+// capped at 5 rows so a busy namespace doesn't blow out the SPEC pane.
 func (v NamespacesView) Details(width, height int) string {
-	row := v.table.SelectedRow()
-	if row == nil {
+	n := v.selectedNamespace()
+	if n == nil {
 		return ""
 	}
-	title := ""
-	if len(row) > 0 {
-		title = row[0]
-	}
 	return layout.DefaultDetails(width, height, layout.DetailsBlock{
-		Title: title,
-		KVs:   kvFromRow(v.cols(), row),
+		Title:    n.Name,
+		Subtitle: fmt.Sprintf("%s · %s", n.Status, fmtAge(n.Age)),
+		KVs:      v.focusKVs(),
 	})
 }
 
-// cols exposes the column slice so kvFromRow can resolve headers.
-func (v NamespacesView) cols() []components.Column { return namespaceCols }
+// focusKVs returns the SPEC fields for the focused namespace.
+func (v NamespacesView) focusKVs() []layout.KV {
+	n := v.selectedNamespace()
+	if n == nil {
+		return nil
+	}
+	kvs := []layout.KV{
+		{Key: "status", Value: fallbackOr(n.Status)},
+	}
+	if labels := topLabels(n.Labels, 5); labels != "" {
+		kvs = append(kvs, layout.KV{Key: "labels", Value: labels})
+	}
+	kvs = append(kvs, layout.KV{Key: "age", Value: fmtAge(n.Age)})
+	return kvs
+}
 
 // visibleNamespaces returns the namespaces slice after applying v.filter
-// (case-insensitive substring match on name + status).
+// through matchesFields. Fields included: name, status — namespaces don't
+// expose other free-text columns in the table.
 func (v NamespacesView) visibleNamespaces() []resources.NamespaceItem {
 	if v.filter == "" {
 		return v.namespaces
 	}
 	out := make([]resources.NamespaceItem, 0, len(v.namespaces))
 	for _, n := range v.namespaces {
-		if matches(v.filter, n.Name, n.Status) {
+		if matchesFields(v.filter, n.Name, n.Status) {
 			out = append(out, n)
 		}
 	}
 	return out
+}
+
+// topLabels renders the top-N labels from a map sorted alphabetically as
+// `k=v,k=v`. Returns "" for an empty map so the caller can omit the row.
+func topLabels(labels map[string]string, max int) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(keys) > max {
+		keys = keys[:max]
+	}
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+labels[k])
+	}
+	return strings.Join(parts, ",")
 }
 
 func (v NamespacesView) rows() []components.Row {

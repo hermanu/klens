@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,10 +25,18 @@ func (s *ConfigMapSvc) ListConfigMaps(ctx context.Context, namespace string) ([]
 	}
 	items := make([]ConfigMapItem, 0, len(list.Items))
 	for _, cm := range list.Items {
+		// KeyNames — sorted preview for the SPEC pane in list mode (Data stays
+		// out of list mode for cost reasons; the names are cheap).
+		names := make([]string, 0, len(cm.Data))
+		for k := range cm.Data {
+			names = append(names, k)
+		}
+		sort.Strings(names)
 		items = append(items, ConfigMapItem{
 			Name:      cm.Name,
 			Namespace: cm.Namespace,
 			Keys:      len(cm.Data),
+			KeyNames:  names,
 			Age:       time.Since(cm.CreationTimestamp.Time),
 			// Data intentionally omitted — too expensive for list view
 		})

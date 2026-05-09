@@ -2,6 +2,7 @@ package views
 
 import (
 	"context"
+	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/hermanu/klens/k8s"
@@ -84,6 +85,19 @@ func (v PVCsView) Update(msg tea.Msg) (PVCsView, tea.Cmd) {
 			v.table = v.table.MoveTop()
 		case "G":
 			v.table = v.table.MoveBottom()
+		case "enter":
+			// Open a full-screen generic describe of the focused PVC. Reuses
+			// the SPEC block for the body — same shape any future non-pod
+			// describe will land on.
+			p := v.selectedPVC()
+			if p == nil {
+				return v, nil
+			}
+			title := "pvc/" + p.Name
+			kvs := v.focusKVs()
+			return v, func() tea.Msg {
+				return SwitchToGenericDescribeMsg{Title: title, KVs: kvs}
+			}
 		}
 	}
 	return v, nil
@@ -156,36 +170,52 @@ func (v PVCsView) Table(width, height int) string {
 	return v.table.View()
 }
 
-// Details implements views.View.
+// Details implements views.View. Renders a uniform SPEC block driven by
+// focusKVs() — status, volume, capacity, access modes, storage class, age.
 func (v PVCsView) Details(width, height int) string {
 	p := v.selectedPVC()
 	if p == nil {
 		return ""
 	}
+	subtitle := p.Namespace
+	if p.Status != "" {
+		subtitle = fmt.Sprintf("%s · %s · %s", p.Namespace, p.Status, fmtAge(p.Age))
+	}
 	return layout.DefaultDetails(width, height, layout.DetailsBlock{
 		Title:    p.Name,
-		Subtitle: p.Namespace,
-		KVs: []layout.KV{
-			{Key: "namespace", Value: p.Namespace},
-			{Key: "status", Value: p.Status},
-			{Key: "volume", Value: p.Volume},
-			{Key: "capacity", Value: p.Capacity},
-			{Key: "access modes", Value: p.AccessModes},
-			{Key: "storage class", Value: p.StorageClass},
-			{Key: "age", Value: fmtAge(p.Age)},
-		},
+		Subtitle: subtitle,
+		KVs:      v.focusKVs(),
 	})
 }
 
-// visiblePVCs returns the pvcs slice after applying v.filter
-// (case-insensitive substring match on name, namespace, status, storage class).
+// focusKVs returns the SPEC fields for the focused PVC. Reused by the Enter
+// handler to populate the GenericDescribeView body so the "describe" sub-view
+// is just a full-width version of the right pane.
+func (v PVCsView) focusKVs() []layout.KV {
+	p := v.selectedPVC()
+	if p == nil {
+		return nil
+	}
+	return []layout.KV{
+		{Key: "status", Value: fallbackOr(p.Status)},
+		{Key: "volume", Value: fallbackOr(p.Volume)},
+		{Key: "capacity", Value: fallbackOr(p.Capacity)},
+		{Key: "access modes", Value: fallbackOr(p.AccessModes)},
+		{Key: "storage class", Value: fallbackOr(p.StorageClass)},
+		{Key: "age", Value: fmtAge(p.Age)},
+	}
+}
+
+// visiblePVCs returns the pvcs slice after applying v.filter through
+// matchesFields. Fields included: name, namespace, status, volume, capacity,
+// access modes, storage class — every stringy column the user sees.
 func (v PVCsView) visiblePVCs() []resources.PVCItem {
 	if v.filter == "" {
 		return v.pvcs
 	}
 	out := make([]resources.PVCItem, 0, len(v.pvcs))
 	for _, p := range v.pvcs {
-		if matches(v.filter, p.Name, p.Namespace, p.Status, p.StorageClass) {
+		if matchesFields(v.filter, p.Name, p.Namespace, p.Status, p.Volume, p.Capacity, p.AccessModes, p.StorageClass) {
 			out = append(out, p)
 		}
 	}
