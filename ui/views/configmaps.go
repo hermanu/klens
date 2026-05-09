@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/hermanu/klens/k8s"
@@ -20,10 +21,14 @@ const (
 	configMapsModeEdit
 )
 
+// Column 0 is NAMESPACE so the row layout matches the other modern shell
+// views; selected() resolves the configmap by table index, not by reading
+// row[0] (which contains an ANSI-coded NSChip).
 var configMapCols = []components.Column{
+	{Header: "NAMESPACE", Width: 14},
 	{Header: "NAME", Width: 44},
-	{Header: "KEYS", Width: 6},
-	{Header: "AGE", Width: 10},
+	{Header: "KEYS", Width: 6, Align: components.AlignRight},
+	{Header: "AGE", Width: 6, Align: components.AlignRight},
 }
 
 // ConfigMapSavedMsg is sent after a configmap save attempt.
@@ -36,8 +41,15 @@ type configMapDetailMsg struct {
 	item resources.ConfigMapItem
 }
 
-// ConfigMapsView handles listing and editing configmaps.
-// ConfigMap data is map[string]string, so the form editor stores values as strings.
+// configMapsListedMsg carries the result of an async ListConfigMaps call.
+type configMapsListedMsg struct {
+	items []resources.ConfigMapItem
+	err   error
+}
+
+// ConfigMapsView lists configmaps and edits them in-place via the form
+// component. ConfigMap data is map[string]string, so the form (which expects
+// []byte values) round-trips through string(...) on save.
 type ConfigMapsView struct {
 	svc        port.ConfigMapService
 	namespace  string
@@ -46,10 +58,9 @@ type ConfigMapsView struct {
 	form       components.Form
 	current    *resources.ConfigMapItem
 	mode       configMapsMode
+	filter     string
 	err        error
 	saveMsg    string
-	width      int
-	height     int
 }
 
 func NewConfigMapsView(svc port.ConfigMapService, namespace string) ConfigMapsView {
@@ -63,18 +74,26 @@ func NewConfigMapsView(svc port.ConfigMapService, namespace string) ConfigMapsVi
 func (v ConfigMapsView) Update(msg tea.Msg) (ConfigMapsView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case k8s.ConfigMapsUpdatedMsg:
-		items, err := v.svc.ListConfigMaps(context.Background(), v.namespace)
-		v.err = err
-		if err == nil {
-			v.configmaps = items
-			v.table = v.table.SetRows(configMapRows(items))
+		ns := v.namespace
+		svc := v.svc
+		return v, func() tea.Msg {
+			items, err := svc.ListConfigMaps(context.Background(), ns)
+			return configMapsListedMsg{items: items, err: err}
+		}
+
+	case configMapsListedMsg:
+		v.err = msg.err
+		if msg.err == nil {
+			v.configmaps = msg.items
+			v.table = v.table.SetRows(v.rows())
 		}
 		return v, nil
 
 	case configMapDetailMsg:
 		item := msg.item
 		v.current = &item
-		// Convert map[string]string to map[string][]byte for the form
+		// ConfigMap data is map[string]string; the form takes []byte values, so
+		// wrap each value before handing it over.
 		data := make(map[string][]byte, len(item.Data))
 		for k, val := range item.Data {
 			data[k] = []byte(val)
@@ -94,16 +113,24 @@ func (v ConfigMapsView) Update(msg tea.Msg) (ConfigMapsView, tea.Cmd) {
 		}
 		return v, nil
 
+	case FilterMsg:
+		v.filter = msg.Query
+		v.table = v.table.SetRows(v.rows())
+		return v, nil
+
+	case NamespaceChangedMsg:
+		v.namespace = msg.Namespace
+		v.configmaps = nil
+		v.mode = configMapsModeList
+		v.current = nil
+		v.table = v.table.SetRows(nil)
+		return v, nil
+
 	case tea.KeyMsg:
 		if v.mode == configMapsModeEdit {
 			return v.updateEdit(msg)
 		}
 		return v.updateList(msg)
-
-	case tea.WindowSizeMsg:
-		v.width = msg.Width
-		v.height = msg.Height
-		v.table = v.table.SetWidth(msg.Width)
 	}
 	return v, nil
 }
@@ -124,14 +151,17 @@ func (v ConfigMapsView) updateList(msg tea.KeyMsg) (ConfigMapsView, tea.Cmd) {
 	return v, nil
 }
 
+// openEditor resolves the focused row to a ConfigMapItem by index because cell
+// 0 is the NSChip with ANSI codes — reading raw values from v.configmaps is
+// the only reliable lookup.
 func (v ConfigMapsView) openEditor() (ConfigMapsView, tea.Cmd) {
-	row := v.table.SelectedRow()
-	if row == nil {
+	cm := v.selected()
+	if cm == nil {
 		return v, nil
 	}
-	name := row[0]
+	name := cm.Name
+	ns := cm.Namespace
 	svc := v.svc
-	ns := v.namespace
 	return v, func() tea.Msg {
 		item, err := svc.GetConfigMap(context.Background(), ns, name)
 		if err != nil {
@@ -165,7 +195,7 @@ func (v ConfigMapsView) saveConfigMap() (ConfigMapsView, tea.Cmd) {
 	}
 	name := v.current.Name
 	rawData := v.form.Data()
-	// Convert map[string][]byte back to map[string]string
+	// ConfigMap data is map[string]string on the wire; cast each []byte back.
 	data := make(map[string]string, len(rawData))
 	for k, val := range rawData {
 		data[k] = string(val)
@@ -178,36 +208,128 @@ func (v ConfigMapsView) saveConfigMap() (ConfigMapsView, tea.Cmd) {
 	}
 }
 
-func (v ConfigMapsView) View() string {
+// selected resolves the table cursor back to a ConfigMapItem from the visible
+// (post-filter) slice, then maps it to the underlying v.configmaps entry.
+func (v ConfigMapsView) selected() *resources.ConfigMapItem {
+	idx := v.table.SelectedIndex()
+	visible := v.visibleConfigMaps()
+	if idx < 0 || idx >= len(visible) {
+		return nil
+	}
+	c := visible[idx]
+	for i := range v.configmaps {
+		if v.configmaps[i].Name == c.Name && v.configmaps[i].Namespace == c.Namespace {
+			return &v.configmaps[i]
+		}
+	}
+	return nil
+}
+
+// Title implements views.View.
+func (v ConfigMapsView) Title() string { return "configmaps" }
+
+// Count implements views.View.
+func (v ConfigMapsView) Count() (visible, total int) {
+	return len(v.visibleConfigMaps()), len(v.configmaps)
+}
+
+// Chips implements views.View.
+func (v ConfigMapsView) Chips() []layout.FilterChip {
+	chips := []layout.FilterChip{}
+	if v.mode == configMapsModeEdit {
+		chips = append(chips, layout.FilterChip{Key: "mode", Value: "edit", Strong: true})
+	}
+	if v.filter != "" {
+		chips = append(chips, layout.FilterChip{Key: "/", Value: v.filter, Strong: true})
+	}
+	return chips
+}
+
+// KeyHints implements views.View. List mode only advertises Enter and `/`;
+// yaml/delete live in KeyMap as Soon entries.
+func (v ConfigMapsView) KeyHints() []layout.KeyHint {
+	if v.mode == configMapsModeEdit {
+		return []layout.KeyHint{
+			{Key: "ctrl+s", Label: "save"},
+			{Key: "esc", Label: "cancel"},
+			{Key: "tab", Label: "next field"},
+		}
+	}
+	return []layout.KeyHint{
+		{Key: "↵", Label: "edit"},
+		{Key: "/", Label: "filter"},
+	}
+}
+
+// KeyMap implements views.KeyMap and powers the `?` help overlay. In edit
+// mode it returns the editor keymap so the overlay matches the focused pane.
+func (v ConfigMapsView) KeyMap() []components.KeySpec {
+	if v.mode == configMapsModeEdit {
+		return []components.KeySpec{
+			{Key: "ctrl+s", Label: "save"},
+			{Key: "esc", Label: "cancel"},
+			{Key: "tab", Label: "next field"},
+			{Key: "ctrl+a", Label: "add row"},
+		}
+	}
+	return []components.KeySpec{
+		{Key: "↵", Label: "edit"},
+		{Key: "/", Label: "filter"},
+		{Key: "y", Label: "yaml", Soon: true},
+		{Key: "d", Label: "delete", Soon: true},
+	}
+}
+
+// Table implements views.View. In edit mode it returns the form body so the
+// shell can swap the central pane without re-routing render calls.
+func (v ConfigMapsView) Table(width, height int) string {
 	if v.mode == configMapsModeEdit && v.current != nil {
-		return v.viewEditor()
+		return v.formView()
 	}
-	return v.viewList()
-}
-
-func (v ConfigMapsView) viewList() string {
-	header := layout.Header(v.width, layout.HeaderConfig{
-		Namespace: v.namespace,
-		Count:     len(v.configmaps),
-		Total:     len(v.configmaps),
-		Watching:  true,
-	})
-	body := v.table.View()
+	v.table = v.table.SetWidth(width).SetHeight(height)
 	if v.err != nil {
-		body = theme.Accent.Render("error: " + v.err.Error())
+		return "error: " + v.err.Error()
 	}
-	if v.saveMsg != "" {
-		body = theme.Mid.Render(v.saveMsg) + "\n" + body
-	}
-	statusbar := layout.StatusBar(v.width, []layout.KeyHint{
-		{Key: "j/k", Label: "navigate"},
-		{Key: "enter", Label: "edit"},
-		{Key: ":", Label: "command"},
-	}, "configmaps")
-	return header + "\n" + body + statusbar
+	return v.table.View()
 }
 
-func (v ConfigMapsView) viewEditor() string {
+// Details implements views.View. Lists a few key names underneath the spec
+// block so the pane is informative even before the user opens the editor.
+func (v ConfigMapsView) Details(width, height int) string {
+	cm := v.selected()
+	if v.mode == configMapsModeEdit && v.current != nil {
+		cm = v.current
+	}
+	if cm == nil {
+		return ""
+	}
+	keys := make([]string, 0, len(cm.Data))
+	for k := range cm.Data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	kvs := []layout.KV{
+		{Key: "namespace", Value: cm.Namespace},
+		{Key: "keys", Value: fmt.Sprintf("%d", cm.Keys)},
+		{Key: "age", Value: fmtAge(cm.Age)},
+	}
+	for i, k := range keys {
+		// Cap the preview at 6 keys — the pane is height-clamped and we don't
+		// want a single configmap dominating the right column.
+		if i >= 6 {
+			break
+		}
+		kvs = append(kvs, layout.KV{Key: "  · " + k, Value: ""})
+	}
+	return layout.DefaultDetails(width, height, layout.DetailsBlock{
+		Title:    cm.Name,
+		Subtitle: cm.Namespace,
+		KVs:      kvs,
+	})
+}
+
+// formView renders just the editor body. The shell renders chrome around it.
+func (v ConfigMapsView) formView() string {
 	title := theme.Base.Render(fmt.Sprintf("  ConfigMap: %s", v.current.Name)) +
 		"  " + theme.Faint.Render("namespace: "+v.namespace) + "\n"
 
@@ -218,22 +340,30 @@ func (v ConfigMapsView) viewEditor() string {
 		notice = "\n" + theme.Mid.Render(v.saveMsg)
 	}
 
-	statusbar := layout.StatusBar(v.width, []layout.KeyHint{
-		{Key: "tab", Label: "next field"},
-		{Key: "↑↓", Label: "row"},
-		{Key: "ctrl+a", Label: "add key"},
-		{Key: "ctrl+d", Label: "delete key"},
-		{Key: "ctrl+s", Label: "save"},
-		{Key: "esc", Label: "cancel"},
-	}, "")
-
-	return title + "\n" + body + notice + "\n" + statusbar
+	return title + "\n" + body + notice
 }
 
-func configMapRows(items []resources.ConfigMapItem) []components.Row {
+// visibleConfigMaps applies v.filter (case-insensitive substring on name +
+// namespace).
+func (v ConfigMapsView) visibleConfigMaps() []resources.ConfigMapItem {
+	if v.filter == "" {
+		return v.configmaps
+	}
+	out := make([]resources.ConfigMapItem, 0, len(v.configmaps))
+	for _, c := range v.configmaps {
+		if matches(v.filter, c.Name, c.Namespace) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (v ConfigMapsView) rows() []components.Row {
+	items := v.visibleConfigMaps()
 	rows := make([]components.Row, len(items))
 	for i, c := range items {
 		rows[i] = components.Row{
+			components.NSChip(c.Namespace),
 			c.Name,
 			fmt.Sprintf("%d", c.Keys),
 			fmtAge(c.Age),

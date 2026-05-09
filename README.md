@@ -22,8 +22,8 @@ k9s is great but has friction points: its UI is dense, secret values are read-on
 - **Inline secret editor** — open any secret, edit values directly, save with `ctrl+s`. Values are decoded from base64 automatically; you work with plain text.
 - **Configmap editor** — same experience for configmaps.
 - **Live watching** — Kubernetes informers keep every view updated without polling.
-- **Command palette** — press `:` to jump to any resource view instantly.
-- **Dark, minimal UI** — designed from scratch with a coherent color palette. No visual noise.
+- **Command palette** — press `:` or `ctrl+k` to jump to any resource view instantly.
+- **Modern shell** — top bar with cluster context, left nav rail with mnemonic 1–8 keys, filter chips, focused-row details pane with live CPU/MEM sparklines and tailing logs, and a `›` `/` filter command bar. Dense by design, k9s-recognisable.
 
 ## Features
 
