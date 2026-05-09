@@ -21,7 +21,9 @@ func TestLoad_Defaults(t *testing.T) {
 func TestLoad_FromFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	os.WriteFile(path, []byte("accent: \"#f0a830\"\n"), 0644)
+	if err := os.WriteFile(path, []byte("accent: \"#f0a830\"\n"), 0644); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
 
 	cfg, err := config.Load(path)
 	if err != nil {

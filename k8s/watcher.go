@@ -65,7 +65,7 @@ func (w *Watcher) Stop() {
 
 func (w *Watcher) register(informer cache.SharedIndexInformer, msg tea.Msg) {
 	send := func(_ interface{}) { w.program.Send(msg) }
-	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, _ = informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    send,
 		UpdateFunc: func(_, obj interface{}) { w.program.Send(msg) },
 		DeleteFunc: send,
