@@ -290,7 +290,8 @@ func (v SecretsView) Table(width, height int) string {
 }
 
 // Details implements views.View. The pane stays informative in both list and
-// edit mode — showing the selected secret's namespace/type/keys/age.
+// edit mode — showing the selected secret's type / keys count / preview keys
+// / age. The detail view never shows values, that's what edit-mode is for.
 func (v SecretsView) Details(width, height int) string {
 	sec := v.selected()
 	// In edit mode v.current is the source of truth (cursor may have moved).
@@ -300,22 +301,48 @@ func (v SecretsView) Details(width, height int) string {
 	if sec == nil {
 		return ""
 	}
-	keys := make([]string, 0, len(sec.Data))
-	for k := range sec.Data {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	kvs := []layout.KV{
-		{Key: "namespace", Value: sec.Namespace},
-		{Key: "type", Value: sec.Type},
-		{Key: "keys", Value: fmt.Sprintf("%d", sec.Keys)},
-		{Key: "age", Value: fmtAge(sec.Age)},
-	}
 	return layout.DefaultDetails(width, height, layout.DetailsBlock{
 		Title:    sec.Name,
-		Subtitle: sec.Namespace,
-		KVs:      kvs,
+		Subtitle: fmt.Sprintf("%s · %s", sec.Namespace, fmtAge(sec.Age)),
+		KVs:      v.focusKVs(),
 	})
+}
+
+// focusKVs returns the SPEC fields for the focused secret in list mode. Top-5
+// alphabetical key names are rendered as "  · name" rows so the user sees what
+// keys live in the secret without opening the editor. Values intentionally
+// stay out of the SPEC block — exposing them belongs to edit mode.
+func (v SecretsView) focusKVs() []layout.KV {
+	sec := v.selected()
+	if v.mode == secretsModeEdit && v.current != nil {
+		sec = v.current
+	}
+	if sec == nil {
+		return nil
+	}
+	// In edit mode we have the decoded Data map; in list mode KeyNames is
+	// the cheap pre-sorted preview populated by ListSecrets.
+	keys := sec.KeyNames
+	if len(keys) == 0 && len(sec.Data) > 0 {
+		keys = make([]string, 0, len(sec.Data))
+		for k := range sec.Data {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+	}
+
+	kvs := []layout.KV{
+		{Key: "type", Value: fallbackOr(sec.Type)},
+		{Key: "keys", Value: fmt.Sprintf("%d", sec.Keys)},
+	}
+	for i, k := range keys {
+		if i >= 5 {
+			break
+		}
+		kvs = append(kvs, layout.KV{Key: "  · " + k, Value: ""})
+	}
+	kvs = append(kvs, layout.KV{Key: "age", Value: fmtAge(sec.Age)})
+	return kvs
 }
 
 // formView renders just the editor body (title row + form + optional save
@@ -334,15 +361,15 @@ func (v SecretsView) formView() string {
 	return title + "\n" + body + notice
 }
 
-// visibleSecrets applies v.filter (case-insensitive substring on name +
-// namespace + type).
+// visibleSecrets applies v.filter through matchesFields. Fields included:
+// name, namespace, type — every stringy column the user sees in the table.
 func (v SecretsView) visibleSecrets() []resources.SecretItem {
 	if v.filter == "" {
 		return v.secrets
 	}
 	out := make([]resources.SecretItem, 0, len(v.secrets))
 	for _, s := range v.secrets {
-		if matches(v.filter, s.Name, s.Namespace, s.Type) {
+		if matchesFields(v.filter, s.Name, s.Namespace, s.Type) {
 			out = append(out, s)
 		}
 	}

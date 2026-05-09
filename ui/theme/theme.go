@@ -56,6 +56,62 @@ func NSColorFor(ns string) lipgloss.Color {
 	return ColorMid
 }
 
+// NSColorAny returns a stable color for any string (typically a pod name) by
+// hashing it into the namespace palette. Used by the multi-pod log tail to
+// give every pod a distinct, repeatable per-line tag color so adjacent lines
+// from different pods are visually separable. Same input → same color across
+// renders so users can build muscle memory.
+//
+// Empty strings fall back to ColorMid to keep the renderer well-defined.
+func NSColorAny(s string) lipgloss.Color {
+	if s == "" {
+		return ColorMid
+	}
+	// FNV-1a 32-bit hash, inlined to avoid pulling in hash/fnv for one call site.
+	const offset = 2166136261
+	const prime = 16777619
+	h := uint32(offset)
+	for i := 0; i < len(s); i++ {
+		h ^= uint32(s[i])
+		h *= prime
+	}
+	// Iterate the palette in a deterministic order — Go map ranges are
+	// randomised, so build the slice once and pick by index.
+	palette := nsPaletteOrdered()
+	return palette[int(h)%len(palette)]
+}
+
+// nsPaletteOrdered returns the per-namespace palette as a deterministic slice.
+// Cached on first call so NSColorAny stays cheap on busy log tails.
+var nsPaletteCache []lipgloss.Color
+
+func nsPaletteOrdered() []lipgloss.Color {
+	if nsPaletteCache != nil {
+		return nsPaletteCache
+	}
+	// Sorted by namespace key for stability — adding a new entry to NSColor
+	// never reshuffles the existing pod→color mappings unless it lands in the
+	// middle of the alphabetical ordering, which is the cheapest invariant
+	// available without a separate ordered palette.
+	keys := make([]string, 0, len(NSColor))
+	for k := range NSColor {
+		keys = append(keys, k)
+	}
+	// Tiny insertion sort — len ~7, sort.Strings would also work but pulls
+	// the sort package import for one-off use.
+	for i := 1; i < len(keys); i++ {
+		for j := i; j > 0 && keys[j-1] > keys[j]; j-- {
+			keys[j-1], keys[j] = keys[j], keys[j-1]
+		}
+	}
+	out := make([]lipgloss.Color, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, NSColor[k])
+	}
+	nsPaletteCache = out
+	return out
+}
+
 // StatusStyle bundles the colors used by a status pill: the dot color, the
 // text color, and the surrounding glow tint (used as cell background on the
 // dot in TUI, since CSS box-shadow doesn't translate).

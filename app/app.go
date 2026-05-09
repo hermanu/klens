@@ -30,8 +30,9 @@ const (
 	viewNamespaces
 	viewNodes
 	viewPVCs
-	viewLogs     // dedicated full-screen log tail; entered via `l` on a pod
-	viewDescribe // dedicated full-screen describe; entered via Enter on a pod
+	viewLogs            // dedicated full-screen log tail; entered via `l` on a pod
+	viewDescribe        // dedicated full-screen pod describe; entered via Enter on a pod
+	viewGenericDescribe // dedicated full-screen KV describe for non-pod resources (PVCs, etc.)
 )
 
 // Geometry — the modern shell's pane sizes. The horizontal layout has three
@@ -55,17 +56,22 @@ type Model struct {
 	namespace    string // active namespace filter ("" = all)
 	cluster      ClusterInfo
 
-	current     viewKind
-	pods        views.PodsView
-	deployments views.DeploymentsView
-	services_   views.ServicesView
-	secrets     views.SecretsView
-	configmaps  views.ConfigMapsView
-	namespaces  views.NamespacesView
-	nodes       views.NodesView
-	pvcs        views.PVCsView
-	logs        views.LogsView
-	describe    views.DescribeView
+	current         viewKind
+	pods            views.PodsView
+	deployments     views.DeploymentsView
+	services_       views.ServicesView
+	secrets         views.SecretsView
+	configmaps      views.ConfigMapsView
+	namespaces      views.NamespacesView
+	nodes           views.NodesView
+	pvcs            views.PVCsView
+	logs            views.LogsView
+	describe        views.DescribeView
+	genericDescribe views.GenericDescribeView
+
+	// showHelp toggles the `?` help overlay. While true, View() returns the
+	// overlay placed full-screen and Update only listens for `?`/esc to dismiss.
+	showHelp bool
 
 	palette     components.Palette
 	showPalette bool
@@ -190,15 +196,19 @@ func New() (Model, error) {
 	if client != nil {
 		m.services = buildServices(client)
 		m.pods = views.NewPodsView(m.services.Pods, ns)
-		m.deployments = views.NewDeploymentsView(m.services.Deployments, ns)
-		m.services_ = views.NewServicesView(m.services.Svcs, ns)
+		// Owner views (deployments, services, nodes) take a PodService alongside
+		// their primary service so `l` can resolve matching pods for the
+		// multi-pod log fan-out without leaking client-go into the views layer.
+		m.deployments = views.NewDeploymentsView(m.services.Deployments, m.services.Pods, ns)
+		m.services_ = views.NewServicesView(m.services.Svcs, m.services.Pods, ns)
 		m.secrets = views.NewSecretsView(m.services.Secrets, ns)
 		m.configmaps = views.NewConfigMapsView(m.services.ConfigMaps, ns)
 		m.namespaces = views.NewNamespacesView(m.services.Namespaces)
-		m.nodes = views.NewNodesView(m.services.Nodes)
+		m.nodes = views.NewNodesView(m.services.Nodes, m.services.Pods)
 		m.pvcs = views.NewPVCsView(m.services.PVCs, ns)
 		m.logs = views.NewLogsView()
 		m.describe = views.NewDescribeView(m.services.Pods)
+		m.genericDescribe = views.NewGenericDescribeView()
 
 		// Best-effort populate top-bar context from the cluster.
 		if v, err := client.Kube.Discovery().ServerVersion(); err == nil {
@@ -285,6 +295,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// `?` toggles the help overlay from any state where the filter is not
+		// focused and the palette isn't already up. Defining this here (above
+		// updateGlobal) means the toggle works regardless of the current view's
+		// keymap and never collides with view-local keys.
+		if !m.filterFocused && !m.showPalette && msg.String() == "?" {
+			m.showHelp = !m.showHelp
+			return m, nil
+		}
+		// While the help overlay is up, esc closes it; everything else is a
+		// no-op so users can't navigate the underlying view by mistake.
+		if m.showHelp {
+			if msg.String() == "esc" {
+				m.showHelp = false
+			}
+			return m, nil
+		}
 		if m.showPalette {
 			return m.updatePalette(msg)
 		}
@@ -301,11 +327,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// PodsView asked us to focus the dedicated full-screen logs view.
+	// A list view (pods, deployments, services, nodes) asked us to focus the
+	// dedicated full-screen logs view. Pods is a slice so single-pod and
+	// multi-pod tails go through the same handler; Title is the chip caption.
 	if sw, ok := msg.(views.SwitchToLogsMsg); ok {
 		m.history = append(m.history, m.current)
-		m.logs = m.logs.WithFocus(sw.Namespace, sw.Pod)
+		m.logs = m.logs.WithFocus(sw.Namespace, sw.Pods, sw.Title)
 		m.current = viewLogs
+		return m, nil
+	}
+
+	// A non-pod list view (today: PVCs) asked us to focus the GenericDescribe
+	// shell with a snapshot of the row's KV preview as the body.
+	if sw, ok := msg.(views.SwitchToGenericDescribeMsg); ok {
+		m.history = append(m.history, m.current)
+		m.genericDescribe = m.genericDescribe.WithFocus(sw.Title, sw.KVs)
+		m.current = viewGenericDescribe
 		return m, nil
 	}
 
@@ -417,6 +454,8 @@ func (m Model) broadcastToViews(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.logs, c = m.logs.Update(msg)
 	cmds = append(cmds, c)
 	m.describe, c = m.describe.Update(msg)
+	cmds = append(cmds, c)
+	m.genericDescribe, c = m.genericDescribe.Update(msg)
 	cmds = append(cmds, c)
 	return m, tea.Batch(cmds...)
 }
@@ -557,6 +596,8 @@ func (m Model) routeToCurrentView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logs, cmd = m.logs.Update(msg)
 	case viewDescribe:
 		m.describe, cmd = m.describe.Update(msg)
+	case viewGenericDescribe:
+		m.genericDescribe, cmd = m.genericDescribe.Update(msg)
 	}
 	return m, cmd
 }
@@ -634,10 +675,12 @@ func (m Model) View() string {
 		TotalCount:   total,
 	})
 
-	// Sub-views (logs, describe) take the full content area — hide the
-	// right details pane so their content isn't squashed.
+	// Sub-views (logs, describe, genericDescribe) take the full content area —
+	// hide the right details pane so their content isn't squashed.
 	showDetails := m.width >= minDetailsAt &&
-		m.current != viewLogs && m.current != viewDescribe
+		m.current != viewLogs &&
+		m.current != viewDescribe &&
+		m.current != viewGenericDescribe
 
 	contentH := m.height - topBarHeight - navStripHeight - cmdBarHeight - chipsHeight
 	if contentH < 1 {
@@ -661,7 +704,12 @@ func (m Model) View() string {
 	}
 	row := lipgloss.JoinHorizontal(lipgloss.Top, rows...)
 
-	cmd := layout.CommandBar(m.width, m.commandBarInput(), v.KeyHints())
+	// Always advertise `?` in the bottom bar — done at the shell level rather
+	// than per-view so adding a new view never requires remembering to add the
+	// help hint, and so the position is stable across views.
+	hints := append([]layout.KeyHint{}, v.KeyHints()...)
+	hints = append(hints, layout.KeyHint{Key: "?", Label: "help"})
+	cmd := layout.CommandBar(m.width, m.commandBarInput(), hints)
 
 	frame := lipgloss.JoinVertical(lipgloss.Left, top, nav, row, cmd)
 
@@ -681,7 +729,30 @@ func (m Model) View() string {
 			modal,
 		)
 	}
+	// The help overlay replaces the frame for the same reason as the palette
+	// (no native overlay support in lipgloss). Source of truth for keys is
+	// the active view's KeyMap() when implemented, falling back to KeyHints().
+	if m.showHelp {
+		return components.Help(m.width, m.height, v.Title(), helpSpecs(v))
+	}
 	return frame
+}
+
+// helpSpecs returns the KeySpec list a view exposes to the `?` overlay.
+// Views that implement views.KeyMap surface the full keymap (including Soon
+// entries advertising upcoming wave items); the rest fall back to KeyHints
+// converted into KeySpecs so every view is at least minimally documented in
+// the overlay.
+func helpSpecs(v views.View) []components.KeySpec {
+	if km, ok := v.(views.KeyMap); ok {
+		return km.KeyMap()
+	}
+	hints := v.KeyHints()
+	out := make([]components.KeySpec, 0, len(hints))
+	for _, h := range hints {
+		out = append(out, components.KeySpec{Key: h.Key, Label: h.Label})
+	}
+	return out
 }
 
 // commandBarInput returns the raw textinput.View() — layout.CommandBar prepends
@@ -714,6 +785,8 @@ func (m Model) currentView() views.View {
 		return m.logs
 	case viewDescribe:
 		return m.describe
+	case viewGenericDescribe:
+		return m.genericDescribe
 	}
 	return m.pods
 }

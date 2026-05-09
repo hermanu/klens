@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hermanu/klens/ui/components"
 	"github.com/hermanu/klens/ui/layout"
 )
 
@@ -44,6 +43,16 @@ type OpenDescribeMsg struct {
 	KVs      []layout.KV
 }
 
+// SwitchToGenericDescribeMsg asks the root model to focus the
+// GenericDescribeView (a full-screen KV describe shell used by non-pod
+// resources like PVCs). Sits alongside SwitchToDescribeMsg (pod-specific) so
+// the shell can route based on the source view without growing a discriminator
+// inside one message type.
+type SwitchToGenericDescribeMsg struct {
+	Title string
+	KVs   []layout.KV
+}
+
 // BackMsg pops the navigation history stack. Sub-views (logs, describe) emit
 // it on Esc so the user returns to whatever they came from.
 type BackMsg struct{}
@@ -68,34 +77,24 @@ func fmtAge(d time.Duration) string {
 	}
 }
 
-// matches reports whether `s` matches the user filter `q` case-insensitively.
-// Empty q matches everything.
-func matches(q string, s ...string) bool {
-	if q == "" {
+// matchesFields is the canonical filter helper used by every list view's
+// visibleX(). Centralising the case-insensitive substring check here lets us
+// guarantee the same fields-in / behaviour-out across resource types — e.g.
+// deployments matching status, configmaps matching type — instead of each
+// view drifting on its own.
+//
+// Empty filter matches everything; otherwise the trimmed query is compared
+// case-insensitively against every supplied field.
+func matchesFields(filter string, fields ...string) bool {
+	if filter == "" {
 		return true
 	}
-	q = strings.ToLower(q)
-	for _, v := range s {
-		if strings.Contains(strings.ToLower(v), q) {
+	f := strings.ToLower(strings.TrimSpace(filter))
+	for _, s := range fields {
+		if strings.Contains(strings.ToLower(s), f) {
 			return true
 		}
 	}
 	return false
 }
 
-// kvFromRow pairs each column's header (lower-cased) with its rendered cell —
-// the default Details() body for resource views without a custom panel.
-func kvFromRow(cols []components.Column, row components.Row) []layout.KV {
-	kvs := make([]layout.KV, 0, len(cols))
-	for i, c := range cols {
-		val := ""
-		if i < len(row) {
-			val = row[i]
-		}
-		kvs = append(kvs, layout.KV{
-			Key:   strings.ToLower(c.Header),
-			Value: val,
-		})
-	}
-	return kvs
-}

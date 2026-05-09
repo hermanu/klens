@@ -54,6 +54,24 @@ func (s *PodSvc) ListPodsForSelector(ctx context.Context, namespace string, sele
 	return items, nil
 }
 
+// ListPodsOnNode returns every pod scheduled to `nodeName` across all
+// namespaces. Uses a server-side spec.nodeName field selector so we don't
+// pull every pod in the cluster only to filter client-side.
+func (s *PodSvc) ListPodsOnNode(ctx context.Context, nodeName string) ([]PodItem, error) {
+	opts := metav1.ListOptions{
+		FieldSelector: "spec.nodeName=" + nodeName,
+	}
+	list, err := s.client.CoreV1().Pods("").List(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]PodItem, 0, len(list.Items))
+	for _, p := range list.Items {
+		items = append(items, podToItem(p))
+	}
+	return items, nil
+}
+
 // DescribePod fetches the rich spec+status of a single pod for the
 // describe view: containers (image/command/resources), service account,
 // QoS class, conditions, etc.

@@ -64,6 +64,10 @@ type DeploymentItem struct {
 	Ready     string
 	UpToDate  int32
 	Available int32
+	Replicas  int32 // total desired replicas (Status.Replicas)
+	Strategy  string
+	Image     string            // first container image — used by the SPEC pane
+	Selector  map[string]string // pod-template label selector; used to scope multi-pod log tails
 	Age       time.Duration
 }
 
@@ -78,6 +82,7 @@ type ServiceItem struct {
 	ClusterIP  string
 	ExternalIP string
 	Ports      string
+	Selector   map[string]string // pod selector; used to scope multi-pod log tails
 	Age        time.Duration
 }
 
@@ -90,6 +95,7 @@ type SecretItem struct {
 	Namespace string
 	Type      string
 	Keys      int
+	KeyNames  []string          // sorted key names — populated by ListSecrets so the SPEC pane can preview top keys without fetching values
 	Age       time.Duration
 	Data      map[string][]byte // decoded bytes; only populated on detail fetch via GetSecret
 }
@@ -102,6 +108,7 @@ type ConfigMapItem struct {
 	Name      string
 	Namespace string
 	Keys      int
+	KeyNames  []string // sorted key names — populated by ListConfigMaps so the SPEC pane can preview top keys without fetching values
 	Age       time.Duration
 	Data      map[string]string
 }
@@ -113,6 +120,7 @@ func (c ConfigMapItem) GetAge() time.Duration { return c.Age }
 type NamespaceItem struct {
 	Name   string
 	Status string
+	Labels map[string]string
 	Age    time.Duration
 }
 
@@ -125,6 +133,11 @@ type NodeItem struct {
 	Status  string
 	Roles   string
 	Version string
+	Kernel  string // kernel version from NodeInfo (may be empty)
+	Runtime string // container runtime version (may be empty)
+	CPU     string // capacity[cpu]
+	Memory  string // capacity[memory] — human-readable, e.g. "16Gi"
+	Pods    string // capacity[pods]
 	Age     time.Duration
 }
 

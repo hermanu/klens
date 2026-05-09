@@ -2,6 +2,7 @@ package views
 
 import (
 	"context"
+	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/hermanu/klens/k8s"
@@ -21,8 +22,11 @@ var serviceCols = []components.Column{
 	{Header: "AGE", Width: 6, Align: components.AlignRight},
 }
 
+// ServicesView lists services and supports `l` to fan out a multi-pod log
+// tail across the service's selector-matched pods.
 type ServicesView struct {
 	svc       port.SvcService
+	pods      port.PodService // for ListPodsForSelector on `l`
 	namespace string
 	services  []resources.ServiceItem
 	table     components.Table
@@ -30,9 +34,12 @@ type ServicesView struct {
 	err       error
 }
 
-func NewServicesView(svc port.SvcService, namespace string) ServicesView {
+// NewServicesView wires the service service plus a PodService used to resolve
+// the service's pods on `l` (multi-pod log fan-out).
+func NewServicesView(svc port.SvcService, pods port.PodService, namespace string) ServicesView {
 	return ServicesView{
 		svc:       svc,
+		pods:      pods,
 		namespace: namespace,
 		table:     components.NewTable(serviceCols, nil),
 	}
@@ -42,6 +49,16 @@ func NewServicesView(svc port.SvcService, namespace string) ServicesView {
 type servicesListedMsg struct {
 	items []resources.ServiceItem
 	err   error
+}
+
+// servicePodsResolvedMsg carries the result of resolving a service's pods to
+// the view, which then emits SwitchToLogsMsg + LogTailRequestMsg. Async to
+// keep the Update loop from blocking on the API call.
+type servicePodsResolvedMsg struct {
+	namespace string
+	title     string
+	pods      []string
+	err       error
 }
 
 func (v ServicesView) Update(msg tea.Msg) (ServicesView, tea.Cmd) {
@@ -73,6 +90,18 @@ func (v ServicesView) Update(msg tea.Msg) (ServicesView, tea.Cmd) {
 		v.table = v.table.SetRows(nil)
 		return v, nil
 
+	case servicePodsResolvedMsg:
+		if msg.err != nil || len(msg.pods) == 0 {
+			return v, nil
+		}
+		ns, pods, title := msg.namespace, msg.pods, msg.title
+		return v, tea.Batch(
+			func() tea.Msg { return SwitchToLogsMsg{Namespace: ns, Pods: pods, Title: title} },
+			func() tea.Msg {
+				return LogTailRequestMsg{Namespace: ns, Pods: pods, SinceSeconds: 1800}
+			},
+		)
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "j", "down":
@@ -83,6 +112,29 @@ func (v ServicesView) Update(msg tea.Msg) (ServicesView, tea.Cmd) {
 			v.table = v.table.MoveTop()
 		case "G":
 			v.table = v.table.MoveBottom()
+		case "l":
+			// Fan out a multi-pod log tail across this service's pods.
+			idx := v.table.SelectedIndex()
+			items := v.visibleServices()
+			if idx >= len(items) || v.pods == nil {
+				return v, nil
+			}
+			s := items[idx]
+			ns, name, sel := s.Namespace, s.Name, s.Selector
+			pods := v.pods
+			return v, func() tea.Msg {
+				items, err := pods.ListPodsForSelector(context.Background(), ns, sel)
+				names := make([]string, 0, len(items))
+				for _, p := range items {
+					names = append(names, p.Name)
+				}
+				return servicePodsResolvedMsg{
+					namespace: ns,
+					title:     "service/" + name,
+					pods:      names,
+					err:       err,
+				}
+			}
 		case "enter":
 			// Drill-down to pods filtered by service name — services
 			// typically share a prefix with the pods they front.
@@ -114,11 +166,12 @@ func (v ServicesView) Chips() []layout.FilterChip {
 	return chips
 }
 
-// KeyHints implements views.View. Only Enter (drill to pods) and `/` are
-// wired today — advertise nothing else in the command bar.
+// KeyHints implements views.View. `l logs` is wired (multi-pod fan-out across
+// the service selector). yaml/delete remain Soon entries.
 func (v ServicesView) KeyHints() []layout.KeyHint {
 	return []layout.KeyHint{
 		{Key: "↵", Label: "pods"},
+		{Key: "l", Label: "logs"},
 		{Key: "/", Label: "filter"},
 	}
 }
@@ -127,7 +180,7 @@ func (v ServicesView) KeyHints() []layout.KeyHint {
 func (v ServicesView) KeyMap() []components.KeySpec {
 	return []components.KeySpec{
 		{Key: "↵", Label: "pods"},
-		{Key: "l", Label: "logs", Soon: true},
+		{Key: "l", Label: "logs"},
 		{Key: "/", Label: "filter"},
 		{Key: "y", Label: "yaml", Soon: true},
 		{Key: "d", Label: "delete", Soon: true},
@@ -143,35 +196,75 @@ func (v ServicesView) Table(width, height int) string {
 	return v.table.View()
 }
 
-// Details implements views.View.
+// Details implements views.View. Renders a uniform SPEC block driven by
+// focusKVs() — type, ips, ports, selector, age — so the right pane stays
+// informative without duplicating the table.
 func (v ServicesView) Details(width, height int) string {
-	row := v.table.SelectedRow()
-	if row == nil {
+	s := v.focusedService()
+	if s == nil {
 		return ""
 	}
-	title := ""
-	// Column 1 holds the raw NAME (column 0 is the namespace chip with ANSI).
-	if len(row) > 1 {
-		title = row[1]
+	subtitle := s.Namespace
+	if s.Type != "" {
+		subtitle = fmt.Sprintf("%s · %s · %s", s.Namespace, s.Type, fmtAge(s.Age))
 	}
 	return layout.DefaultDetails(width, height, layout.DetailsBlock{
-		Title: title,
-		KVs:   kvFromRow(v.cols(), row),
+		Title:    s.Name,
+		Subtitle: subtitle,
+		KVs:      v.focusKVs(),
 	})
 }
 
-// cols exposes the column slice so kvFromRow can resolve headers.
-func (v ServicesView) cols() []components.Column { return serviceCols }
+// focusKVs returns the SPEC fields for the focused service. Empty fields are
+// included where they have a meaningful "—" representation; selector is
+// truncated so a noisy multi-label service doesn't blow out the SPEC pane.
+func (v ServicesView) focusKVs() []layout.KV {
+	s := v.focusedService()
+	if s == nil {
+		return nil
+	}
+	kvs := []layout.KV{
+		{Key: "type", Value: fallbackOr(s.Type)},
+		{Key: "cluster ip", Value: fallbackOr(s.ClusterIP)},
+		{Key: "external", Value: fallbackOr(s.ExternalIP)},
+	}
+	if s.Ports != "" {
+		kvs = append(kvs, layout.KV{Key: "ports", Value: s.Ports})
+	}
+	if sel := joinSelector(s.Selector); sel != "" {
+		kvs = append(kvs, layout.KV{Key: "selector", Value: truncSelector(sel)})
+	}
+	kvs = append(kvs, layout.KV{Key: "age", Value: fmtAge(s.Age)})
+	return kvs
+}
 
-// visibleServices returns the services slice after applying v.filter
-// (case-insensitive substring match on name + namespace + type).
+// focusedService resolves the table cursor back to a ServiceItem in the
+// post-filter slice.
+func (v ServicesView) focusedService() *resources.ServiceItem {
+	idx := v.table.SelectedIndex()
+	visible := v.visibleServices()
+	if idx < 0 || idx >= len(visible) {
+		return nil
+	}
+	target := visible[idx]
+	for i := range v.services {
+		if v.services[i].Name == target.Name && v.services[i].Namespace == target.Namespace {
+			return &v.services[i]
+		}
+	}
+	return nil
+}
+
+// visibleServices returns the services slice after applying v.filter through
+// matchesFields. Fields included: name, namespace, type, cluster IP, external
+// IP, ports — every stringy column the user sees in the table.
 func (v ServicesView) visibleServices() []resources.ServiceItem {
 	if v.filter == "" {
 		return v.services
 	}
 	out := make([]resources.ServiceItem, 0, len(v.services))
 	for _, s := range v.services {
-		if matches(v.filter, s.Name, s.Namespace, s.Type) {
+		if matchesFields(v.filter, s.Name, s.Namespace, s.Type, s.ClusterIP, s.ExternalIP, s.Ports) {
 			out = append(out, s)
 		}
 	}
