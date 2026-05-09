@@ -27,7 +27,7 @@ func TopBar(width int, cfg TopBarConfig) string {
 
 	left := identityStrip(cfg)
 	mid := klensBanner()
-	right := liveDot(cfg.Live)
+	right := rightChips(cfg.Live)
 	row := flex3(width, left, mid, right)
 
 	div := lipgloss.NewStyle().
@@ -84,16 +84,19 @@ func shortK8sVersion(v string) string {
 	return v
 }
 
-// liveDot renders the right-hand chip on the top bar. We dropped the `:
-// palette` text because (a) `:` is documented in the palette itself and the
-// command bar's filter prompt, and (b) shaving the right side keeps the
-// banner visually centered.
-func liveDot(live bool) string {
+// rightChips renders the top bar's right-hand corner: the `: palette` hint
+// and (when live) the watch dot. Two-tone palette only — accent for the key
+// glyph + dot, muted for the descriptive label.
+func rightChips(live bool) string {
+	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted)
+	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent)
+
+	paletteHint := accent.Render(":") + " " + muted.Render("palette")
 	if !live {
-		return ""
+		return paletteHint
 	}
-	dot := lipgloss.NewStyle().Foreground(theme.ColorAccent).Render("●")
-	return dot + " " + theme.Faint.Render("live")
+	dot := accent.Render("●")
+	return paletteHint + "   " + dot + " " + muted.Render("live")
 }
 
 // nsChip renders a colored namespace chip — the visual anchor of the modern
