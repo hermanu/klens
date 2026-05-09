@@ -34,17 +34,17 @@ const (
 	viewDescribe // dedicated full-screen describe; entered via Enter on a pod
 )
 
-// Geometry — the modern shell's pane sizes. Adjusted dynamically based on
-// terminal width: details drops first below 140 cols, then nav rail below 100.
+// Geometry — the modern shell's pane sizes. The horizontal layout has three
+// fixed-height chrome rows above the content area (top bar + divider, nav
+// strip, filter chips) and the command bar on the bottom. The right details
+// pane drops below 120 cols so the table never gets squeezed under ~80.
 const (
-	navRailWidth  = 22
-	detailsWidth  = 44
-	topBarHeight  = 3 // 2-row content + 1 bottom border accounted via Panel
-	cmdBarHeight  = 1
-	chipsHeight   = 1
-	minDetailsAt  = 140
-	minNavAt      = 100
-	cardLineCount = 1
+	detailsWidth   = 44
+	topBarHeight   = 2 // 1 content row + 1 divider
+	navStripHeight = 1
+	cmdBarHeight   = 1
+	chipsHeight    = 1
+	minDetailsAt   = 120
 )
 
 // Model is the root Bubble Tea model. It owns all views, the input, the
@@ -583,16 +583,34 @@ func (m Model) reloadCmd() tea.Cmd {
 	return nil
 }
 
-// View composes the modern shell. The palette overlay replaces the central
-// area when open (no real overlay support in lipgloss; this matches the
-// behaviour klens already had).
+// View composes the modern shell:
+//
+//	┌─────────────────────────────────────────────────────────────────┐
+//	│ ctx maisa-sdlc · v1.30 · ▆ europa  ── K L E N S ──     ● live   │ top bar
+//	├─────────────────────────────────────────────────────────────────┤
+//	│ ▌1 pods 4/23   2 deployments 14   3 services 12   ...           │ nav strip
+//	│ filter chips ........................                           │ chips
+//	│                                                                 │
+//	│ table                                          │ details        │ content
+//	│                                                                 │
+//	├─────────────────────────────────────────────────────────────────┤
+//	│ › / type to filter         ↵ describe   l logs   / filter   ?   │ command bar
+//	└─────────────────────────────────────────────────────────────────┘
+//
+// The vertical nav rail was replaced by a horizontal strip directly under the
+// top bar — gives the table full horizontal real estate, drops the cluster-
+// meta block (cpu/mem are unwired anyway), and consolidates the count onto
+// the active nav item so it doesn't duplicate the resource label or scope.
+//
+// The palette overlay replaces the entire frame when open; lipgloss has no
+// real cell-coordinate overlay support, so this matches klens's pre-redesign
+// behaviour.
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return ""
 	}
 	v := m.currentView()
 
-	// Top bar.
 	visible, total := v.Count()
 	top := layout.TopBar(m.width, layout.TopBarConfig{
 		Context:      fallback(m.cluster.Context, "—"),
@@ -601,7 +619,7 @@ func (m Model) View() string {
 		K8sVersion:   fallback(m.cluster.K8sVersion, "—"),
 		Region:       fallback(m.cluster.Region, "—"),
 		KlensVer:     fallback(m.cluster.KlensVer, "dev"),
-		Namespace:    "ns:" + fallback(m.namespace, "all"),
+		Namespace:    fallback(m.namespace, "all"),
 		Resource:     v.Title(),
 		Live:         m.client != nil,
 		VisibleCount: visible,
@@ -609,41 +627,35 @@ func (m Model) View() string {
 		Totals:       m.totals(),
 	})
 
-	showNav := m.width >= minNavAt
+	nav := layout.NavStrip(m.width, layout.NavStripConfig{
+		Items:        m.navItems(),
+		Current:      v.Title(),
+		VisibleCount: visible,
+		TotalCount:   total,
+	})
+
 	// Sub-views (logs, describe) take the full content area — hide the
 	// right details pane so their content isn't squashed.
 	showDetails := m.width >= minDetailsAt &&
 		m.current != viewLogs && m.current != viewDescribe
 
-	contentH := m.height - topBarHeight - cmdBarHeight - chipsHeight
+	contentH := m.height - topBarHeight - navStripHeight - cmdBarHeight - chipsHeight
 	if contentH < 1 {
 		contentH = 1
 	}
 
-	navW := 0
 	detW := 0
-	if showNav {
-		navW = navRailWidth
-	}
 	if showDetails {
 		detW = detailsWidth
 	}
-	midW := m.width - navW - detW
+	midW := m.width - detW
 
 	chips := layout.FilterChips(midW, v.Chips(), visible, total)
-	tableHeight := contentH
-	if tableHeight < 1 {
-		tableHeight = 1
-	}
-	tbl := v.Table(midW, tableHeight)
+	tbl := v.Table(midW, contentH)
 
 	center := lipgloss.JoinVertical(lipgloss.Left, chips, tbl)
 
-	rows := []string{}
-	if showNav {
-		rows = append(rows, layout.NavRail(navW, contentH+chipsHeight, v.Title(), m.navItems(), m.clusterMeta()))
-	}
-	rows = append(rows, center)
+	rows := []string{center}
 	if showDetails {
 		rows = append(rows, v.Details(detW, contentH+chipsHeight))
 	}
@@ -651,7 +663,7 @@ func (m Model) View() string {
 
 	cmd := layout.CommandBar(m.width, m.commandBarInput(), v.KeyHints())
 
-	frame := lipgloss.JoinVertical(lipgloss.Left, top, row, cmd)
+	frame := lipgloss.JoinVertical(lipgloss.Left, top, nav, row, cmd)
 
 	if m.showPalette {
 		// Center the palette over a full-screen blank canvas. We deliberately
@@ -706,54 +718,38 @@ func (m Model) currentView() views.View {
 	return m.pods
 }
 
-// navItems returns the nav-rail entries with current counts.
+// navItems returns the nav-strip entries with their current totals.
+// Each item's Count is the resource's total; the active item's filtered/
+// total count is supplied separately via NavStripConfig.VisibleCount.
 func (m Model) navItems() []layout.NavItem {
-	pV, pT := m.pods.Count()
-	dV, dT := m.deployments.Count()
-	sV, sT := m.services_.Count()
-	secV, secT := m.secrets.Count()
-	cmV, cmT := m.configmaps.Count()
-	nsV, nsT := m.namespaces.Count()
-	noV, noT := m.nodes.Count()
-	pvV, pvT := m.pvcs.Count()
-	pick := func(filtered, total int) int {
-		if filtered != total {
-			return filtered
-		}
-		return total
-	}
+	_, pT := m.pods.Count()
+	_, dT := m.deployments.Count()
+	_, sT := m.services_.Count()
+	_, secT := m.secrets.Count()
+	_, cmT := m.configmaps.Count()
+	_, nsT := m.namespaces.Count()
+	_, noT := m.nodes.Count()
+	_, pvT := m.pvcs.Count()
 	return []layout.NavItem{
-		{Key: "pods", Label: "Pods", Mnemonic: "1", Count: pick(pV, pT)},
-		{Key: "deployments", Label: "Deployments", Mnemonic: "2", Count: pick(dV, dT)},
-		{Key: "services", Label: "Services", Mnemonic: "3", Count: pick(sV, sT)},
-		{Key: "secrets", Label: "Secrets", Mnemonic: "4", Count: pick(secV, secT)},
-		{Key: "configmaps", Label: "ConfigMaps", Mnemonic: "5", Count: pick(cmV, cmT)},
-		{Key: "namespaces", Label: "Namespaces", Mnemonic: "6", Count: pick(nsV, nsT)},
-		{Key: "nodes", Label: "Nodes", Mnemonic: "7", Count: pick(noV, noT)},
-		{Key: "pvcs", Label: "PVCs", Mnemonic: "8", Count: pick(pvV, pvT)},
+		{Key: "pods", Label: "Pods", Mnemonic: "1", Count: pT},
+		{Key: "deployments", Label: "Deployments", Mnemonic: "2", Count: dT},
+		{Key: "services", Label: "Services", Mnemonic: "3", Count: sT},
+		{Key: "secrets", Label: "Secrets", Mnemonic: "4", Count: secT},
+		{Key: "configmaps", Label: "ConfigMaps", Mnemonic: "5", Count: cmT},
+		{Key: "namespaces", Label: "Namespaces", Mnemonic: "6", Count: nsT},
+		{Key: "nodes", Label: "Nodes", Mnemonic: "7", Count: noT},
+		{Key: "pvcs", Label: "PVCs", Mnemonic: "8", Count: pvT},
 	}
 }
 
-// totals renders the design's right-aligned counter strip in the top bar.
+// totals returns the legacy aggregate counter set. The new nav strip carries
+// per-resource counts directly, so this is only kept to satisfy the existing
+// TopBarConfig field — the top bar itself no longer renders it.
 func (m Model) totals() layout.Totals {
 	_, p := m.pods.Count()
 	_, d := m.deployments.Count()
 	_, s := m.services_.Count()
 	return layout.Totals{Pods: p, Deployments: d, Services: s}
-}
-
-// clusterMeta gathers the bottom-of-rail block. Counts come from views; CPU /
-// MEM percentages would need metrics-server aggregation across nodes — left
-// at zero (renders as "—" in the rail) until that's wired through.
-func (m Model) clusterMeta() layout.ClusterMeta {
-	_, total := m.pods.Count()
-	_, nodes := m.nodes.Count()
-	return layout.ClusterMeta{
-		NodesReady: nodes,
-		NodesTotal: nodes,
-		Pods:       total,
-		PodsCap:    total, // we don't track allocatable pods yet
-	}
 }
 
 func paletteNameToView(name string) viewKind {

@@ -1,7 +1,6 @@
 package layout
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -9,15 +8,14 @@ import (
 	"github.com/hermanu/klens/ui/theme"
 )
 
-// TopBar renders the modern shell's top bar. Two compact rows + a divider:
+// TopBar renders the modern shell's compact top bar — a single row + divider:
 //
-//	ctx maisa-sdlc · v1.35           ── K L E N S ──            : palette · ● live
-//	▆ europa  pods · 4 of 23
+//	ctx maisa-sdlc · v1.30 · ▆ europa     ── K L E N S ──     ● live
 //
-// The count on row 2 is the canonical filtered/total counter for the current
-// view. Anchoring it here (instead of inside the filter strip) keeps the
-// number at the same screen column on every render so the eye doesn't have
-// to track it as filters change.
+// The horizontal nav strip (rendered by NavStrip) sits directly under this
+// divider and carries the per-resource mnemonic + count. The aggregate
+// filtered/total count is anchored on the active nav item — not duplicated
+// here — so the chrome stays one line tall.
 //
 // Cluster ARN, user ARN, region and klens-version are intentionally left out:
 // they don't change during a session and just steal horizontal real estate.
@@ -27,29 +25,19 @@ func TopBar(width int, cfg TopBarConfig) string {
 		width = 1
 	}
 
-	// ── row 1: identity (left) — KLENS banner (center) — ⌘K + live (right) ─
-	identity := identityStrip(cfg)
-	banner := klensBanner()
-	right1 := commandHints(cfg.Live)
-	r1 := flex3(width, identity, banner, right1)
-
-	// ── row 2: scope (left) — right side intentionally empty ──────────────
-	// We dropped the aggregate counters chip from row 2: it was redundant
-	// with the canonical "V of N" count we now anchor inside scopeStrip,
-	// and it competed with the live dot on row 1 for attention.
-	scope := scopeStrip(cfg)
-	r2 := flex(width, scope, "")
+	left := identityStrip(cfg)
+	mid := klensBanner()
+	right := liveDot(cfg.Live)
+	row := flex3(width, left, mid, right)
 
 	div := lipgloss.NewStyle().
 		Foreground(theme.ColorBorder).
 		Render(strings.Repeat("─", width))
-	return lipgloss.JoinVertical(lipgloss.Left, r1, r2, div)
+	return lipgloss.JoinVertical(lipgloss.Left, row, div)
 }
 
 // klensBanner is the brand banner — a letter-spaced KLENS in accent flanked
-// by symmetric thin horizontal-line "bookends" so it reads as a single
-// balanced unit. The previous lone leading "◉" sat off-center and made the
-// title look like it had a stray dot on the side.
+// by symmetric thin horizontal-line bookends so it reads as one balanced unit.
 func klensBanner() string {
 	bookend := lipgloss.NewStyle().
 		Foreground(theme.ColorBorder).
@@ -61,10 +49,11 @@ func klensBanner() string {
 	return bookend + "  " + name + "  " + bookend
 }
 
-// identityStrip renders the minimal cluster identity — just the context name
-// and the short k8s server version. Cluster ARN and user ARN are deliberately
-// omitted (they're long, redundant with the context name, and not actionable
-// at runtime).
+// identityStrip renders the minimal cluster identity: context + short k8s
+// version + the active namespace chip. The namespace chip used to live on a
+// dedicated row 2 (with the resource label and count); we collapsed it here
+// because the resource label is now redundant with the active nav item, and
+// the count is now anchored on that nav item too.
 func identityStrip(cfg TopBarConfig) string {
 	parts := []string{}
 	if c := strings.TrimSpace(cfg.Context); c != "" {
@@ -77,11 +66,13 @@ func identityStrip(cfg TopBarConfig) string {
 			theme.Faint.Render("·")+" "+
 				lipgloss.NewStyle().Foreground(theme.ColorFG2).Render(v))
 	}
+	parts = append(parts,
+		theme.Faint.Render("·")+" "+nsChip(cfg.Namespace))
 	return strings.Join(parts, "  ")
 }
 
-// shortK8sVersion compresses "v1.35.3-eks-bbe087e" to "v1.35.3". Only the
-// minor version is what users care about at a glance.
+// shortK8sVersion compresses "v1.35.3-eks-bbe087e" to "v1.35.3" — the minor
+// version is what users care about at a glance.
 func shortK8sVersion(v string) string {
 	v = strings.TrimSpace(v)
 	if v == "" || v == "—" {
@@ -93,75 +84,30 @@ func shortK8sVersion(v string) string {
 	return v
 }
 
-// commandHints renders the right-hand chip strip on row 1.
-func commandHints(live bool) string {
-	// Show only the keys that actually open the palette. We drop "⌘K"
-	// because it conflicts with terminal emulator shortcuts (Warp, iTerm).
-	palette := lipgloss.NewStyle().Foreground(theme.ColorFG2).Render(":") +
-		" " + theme.Faint.Render("palette")
+// liveDot renders the right-hand chip on the top bar. We dropped the `:
+// palette` text because (a) `:` is documented in the palette itself and the
+// command bar's filter prompt, and (b) shaving the right side keeps the
+// banner visually centered.
+func liveDot(live bool) string {
 	if !live {
-		return palette
+		return ""
 	}
 	dot := lipgloss.NewStyle().Foreground(theme.ColorAccent).Render("●")
-	return palette + "   " + dot + " " + theme.Faint.Render("live")
+	return dot + " " + theme.Faint.Render("live")
 }
 
-// scopeStrip renders the row 2 scope: namespace chip + resource label +
-// canonical filtered/total count. The count column is anchored here so it
-// stays at the same screen column on every render of every view, instead of
-// drifting around as filters change.
-//
-//	▆ europa  pods · 23           (unfiltered: V == T)
-//	▆ europa  pods · 4 of 23      (filtered:   V != T, V in accent)
-func scopeStrip(cfg TopBarConfig) string {
-	ns := strings.TrimSpace(cfg.Namespace)
-	chip := scopeNamespaceChip(ns)
-	res := lipgloss.NewStyle().
-		Foreground(theme.ColorFG).
-		Bold(true).
-		Render(fallback(cfg.Resource, "pods"))
-
-	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted)
-	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent)
-	var count string
-	if cfg.VisibleCount == cfg.TotalCount {
-		count = muted.Render(fmt.Sprintf("· %d", cfg.TotalCount))
-	} else {
-		count = muted.Render("· ") +
-			accent.Render(fmt.Sprintf("%d", cfg.VisibleCount)) +
-			muted.Render(fmt.Sprintf(" of %d", cfg.TotalCount))
-	}
-	return chip + "   " + res + "  " + count
-}
-
-// scopeNamespaceChip renders a colored namespace chip — the visual anchor of
-// the modern shell. Color is derived from theme.NSColor (mirrors the design's
-// per-namespace palette) so users develop muscle-memory between color and
-// scope.
-func scopeNamespaceChip(ns string) string {
-	if ns == "all" || ns == "" {
+// nsChip renders a colored namespace chip — the visual anchor of the modern
+// shell. Color is derived from theme.NSColor (per-namespace palette) so
+// users develop muscle memory between color and scope.
+func nsChip(ns string) string {
+	ns = strings.TrimSpace(ns)
+	if ns == "" || ns == "all" {
 		return lipgloss.NewStyle().
 			Foreground(theme.ColorMuted).
 			Bold(true).
 			Render("▆ all namespaces")
 	}
 	return components.NSChipBold(ns)
-}
-
-// flex lays out a left and right segment across `width` cells, padding the
-// middle with spaces. If they don't fit, the left side is truncated.
-func flex(width int, left, right string) string {
-	inner := width - 2
-	if inner < 1 {
-		inner = 1
-	}
-	gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		left = truncToWidth(left, inner-lipgloss.Width(right)-1)
-		gap = 1
-	}
-	line := left + strings.Repeat(" ", gap) + right
-	return lipgloss.NewStyle().Padding(0, 1).Width(width).Render(line)
 }
 
 // flex3 lays out left | center | right segments across `width`, biasing the
@@ -194,11 +140,20 @@ func flex3(width int, left, mid, right string) string {
 	return lipgloss.NewStyle().Padding(0, 1).Width(width).Render(line)
 }
 
-func fallback(s, def string) string {
-	if s == "" {
-		return def
+// flex lays out a left and right segment across `width` cells, padding the
+// middle with spaces. If they don't fit, the left side is truncated.
+func flex(width int, left, right string) string {
+	inner := width - 2
+	if inner < 1 {
+		inner = 1
 	}
-	return s
+	gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		left = truncToWidth(left, inner-lipgloss.Width(right)-1)
+		gap = 1
+	}
+	line := left + strings.Repeat(" ", gap) + right
+	return lipgloss.NewStyle().Padding(0, 1).Width(width).Render(line)
 }
 
 // truncToWidth clamps a styled string to n display columns by trimming bytes

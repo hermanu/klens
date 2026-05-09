@@ -130,6 +130,13 @@ func DefaultDetails(width, height int, b DetailsBlock) string {
 	return lipgloss.JoinVertical(lipgloss.Left, out...)
 }
 
+func padLeft(s string, n int) string {
+	if w := lipgloss.Width(s); w >= n {
+		return s
+	}
+	return strings.Repeat(" ", n-lipgloss.Width(s)) + s
+}
+
 func padRight(s string, n int) string {
 	if w := lipgloss.Width(s); w >= n {
 		return s
