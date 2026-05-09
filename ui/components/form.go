@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/manu/klens/ui/theme"
+	"github.com/hermanu/klens/ui/theme"
 )
 
 type formRow struct {

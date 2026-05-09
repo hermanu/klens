@@ -5,8 +5,8 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/manu/klens/app"
-	k8sclient "github.com/manu/klens/k8s"
+	"github.com/hermanu/klens/app"
+	k8sclient "github.com/hermanu/klens/k8s"
 )
 
 // Set by GoReleaser at build time via -ldflags.

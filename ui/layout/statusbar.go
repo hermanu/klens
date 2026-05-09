@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/manu/klens/ui/theme"
+	"github.com/hermanu/klens/ui/theme"
 )
 
 // KeyHint is a key + label pair shown in the status bar.

@@ -65,5 +65,5 @@ release:
 
     **Go install:**
     ```
-    go install github.com/manu/klens@{{.Tag}}
+    go install github.com/hermanu/klens@{{.Tag}}
     ```

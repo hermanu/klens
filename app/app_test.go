@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/manu/klens/app"
+	"github.com/hermanu/klens/app"
 )
 
 // TestModel_PaletteToggle verifies the command palette opens and closes.

@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/manu/klens/ui/theme"
+	"github.com/hermanu/klens/ui/theme"
 )
 
 // Column defines a table column's header and fixed display width.

@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/manu/klens/ui/theme"
+	"github.com/hermanu/klens/ui/theme"
 )
 
 // FilterChip represents an active filter shown in the header.

@@ -5,12 +5,12 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/manu/klens/k8s"
-	"github.com/manu/klens/k8s/resources"
-	"github.com/manu/klens/port"
-	"github.com/manu/klens/ui/components"
-	"github.com/manu/klens/ui/layout"
-	"github.com/manu/klens/ui/theme"
+	"github.com/hermanu/klens/k8s"
+	"github.com/hermanu/klens/k8s/resources"
+	"github.com/hermanu/klens/port"
+	"github.com/hermanu/klens/ui/components"
+	"github.com/hermanu/klens/ui/layout"
+	"github.com/hermanu/klens/ui/theme"
 )
 
 type configMapsMode int

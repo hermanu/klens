@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/manu/klens/config"
+	"github.com/hermanu/klens/config"
 )
 
 func TestLoad_Defaults(t *testing.T) {

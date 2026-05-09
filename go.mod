@@ -1,4 +1,4 @@
-module github.com/manu/klens
+module github.com/hermanu/klens
 
 go 1.26.3
 

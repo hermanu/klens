@@ -42,19 +42,19 @@ k9s is great but has friction points: its UI is dense, secret values are read-on
 
 ### Pre-built binary (recommended)
 
-Download the binary for your platform from the [latest release](https://github.com/manu/klens/releases/latest):
+Download the binary for your platform from the [latest release](https://github.com/hermanu/klens/releases/latest):
 
 ```bash
 # Linux (amd64)
-curl -L https://github.com/manu/klens/releases/latest/download/klens_linux_amd64.tar.gz | tar xz
+curl -L https://github.com/hermanu/klens/releases/latest/download/klens_linux_amd64.tar.gz | tar xz
 sudo mv klens /usr/local/bin/
 
 # macOS (Apple Silicon)
-curl -L https://github.com/manu/klens/releases/latest/download/klens_darwin_arm64.tar.gz | tar xz
+curl -L https://github.com/hermanu/klens/releases/latest/download/klens_darwin_arm64.tar.gz | tar xz
 sudo mv klens /usr/local/bin/
 
 # macOS (Intel)
-curl -L https://github.com/manu/klens/releases/latest/download/klens_darwin_amd64.tar.gz | tar xz
+curl -L https://github.com/hermanu/klens/releases/latest/download/klens_darwin_amd64.tar.gz | tar xz
 sudo mv klens /usr/local/bin/
 ```
 
@@ -63,13 +63,13 @@ sudo mv klens /usr/local/bin/
 Requires Go 1.22+.
 
 ```bash
-go install github.com/manu/klens@latest
+go install github.com/hermanu/klens@latest
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/manu/klens
+git clone https://github.com/hermanu/klens
 cd klens
 go build -o klens .
 sudo mv klens /usr/local/bin/

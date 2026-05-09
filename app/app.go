@@ -5,12 +5,12 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/manu/klens/config"
-	k8sclient "github.com/manu/klens/k8s"
-	"github.com/manu/klens/k8s/resources"
-	"github.com/manu/klens/port"
-	"github.com/manu/klens/ui/components"
-	"github.com/manu/klens/ui/views"
+	"github.com/hermanu/klens/config"
+	k8sclient "github.com/hermanu/klens/k8s"
+	"github.com/hermanu/klens/k8s/resources"
+	"github.com/hermanu/klens/port"
+	"github.com/hermanu/klens/ui/components"
+	"github.com/hermanu/klens/ui/views"
 )
 
 type viewKind int

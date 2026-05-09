@@ -3,7 +3,7 @@ package components_test
 import (
 	"testing"
 
-	"github.com/manu/klens/ui/components"
+	"github.com/hermanu/klens/ui/components"
 )
 
 func TestForm_NewFromData(t *testing.T) {

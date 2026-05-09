@@ -3,7 +3,7 @@ package components_test
 import (
 	"testing"
 
-	"github.com/manu/klens/ui/components"
+	"github.com/hermanu/klens/ui/components"
 )
 
 func TestPalette_Filter(t *testing.T) {

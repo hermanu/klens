@@ -3,7 +3,7 @@ package k8s_test
 import (
 	"testing"
 
-	k8sclient "github.com/manu/klens/k8s"
+	k8sclient "github.com/hermanu/klens/k8s"
 )
 
 func TestNewClient_InvalidPath(t *testing.T) {

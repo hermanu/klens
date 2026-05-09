@@ -3,7 +3,7 @@ package port
 import (
 	"context"
 
-	"github.com/manu/klens/k8s/resources"
+	"github.com/hermanu/klens/k8s/resources"
 )
 
 // PodService is the port for pod operations.
