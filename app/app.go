@@ -45,10 +45,19 @@ type Model struct {
 	height      int
 }
 
-func New() (Model, error) {
+// New builds the root model. Non-empty overrides take precedence over the
+// config file: kubeconfigOverride replaces cfg.Kubeconfig, namespaceOverride
+// replaces cfg.Namespace. Pass empty strings to fall back to the config.
+func New(kubeconfigOverride, namespaceOverride string) (Model, error) {
 	cfg, err := config.Load("")
 	if err != nil {
 		return Model{}, fmt.Errorf("load config: %w", err)
+	}
+	if kubeconfigOverride != "" {
+		cfg.Kubeconfig = kubeconfigOverride
+	}
+	if namespaceOverride != "" {
+		cfg.Namespace = namespaceOverride
 	}
 	ns := cfg.Namespace
 	if ns == "" {

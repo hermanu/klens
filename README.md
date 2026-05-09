@@ -87,11 +87,14 @@ sudo mv klens /usr/local/bin/
 # Use your current kubeconfig context
 klens
 
-# Specify a kubeconfig
+# Specify a kubeconfig (overrides config file and KUBECONFIG env var)
 klens --kubeconfig ~/.kube/staging.yaml
 
 # Start in a specific namespace
 klens --namespace production
+
+# Print version and exit
+klens --version
 ```
 
 ## Keyboard shortcuts
