@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the use case or pain point. "I want X" is less useful than "When I do Y, I get stuck because Z".
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: How would you like klens to behave? Mockups, keybindings, or screenshots welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you've thought about, including just doing nothing.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - New resource type (e.g. CronJobs, Ingresses)
+        - New keybinding or command
+        - Editor improvement (secrets/configmaps)
+        - UI/theme change
+        - Configuration option
+        - Other
+    validations:
+      required: true
