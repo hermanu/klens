@@ -718,28 +718,40 @@ func (m Model) View() string {
 	frame := lipgloss.JoinVertical(lipgloss.Left, top, nav, row, cmd)
 
 	if m.showPalette {
-		// Center the palette over a full-screen blank canvas. We deliberately
-		// skip a real overlay (lipgloss has no native cell-coordinate
-		// substitution) — the palette modal replaces the frame, matching
-		// klens's pre-redesign behaviour. No explicit Background here so the
-		// modal inherits the terminal's true black like the rest of the chrome.
 		modal := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(theme.ColorAccent).
 			Padding(0, 1).
 			Render(m.palette.View(60))
-		return lipgloss.Place(m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			modal,
-		)
+		return overlayCentered(frame, modal, m.width, m.height)
 	}
-	// The help overlay replaces the frame for the same reason as the palette
-	// (no native overlay support in lipgloss). Source of truth for keys is
-	// the active view's KeyMap() when implemented, falling back to KeyHints().
+	// Help overlay also paints over the frame so the user keeps context while
+	// reading the keymap. Source of truth for keys is the active view's
+	// KeyMap() when implemented, falling back to KeyHints().
 	if m.showHelp {
-		return components.Help(m.width, m.height, v.Title(), helpSpecs(v))
+		body := components.HelpBody(v.Title(), helpSpecs(v))
+		return overlayCentered(frame, body, m.width, m.height)
 	}
 	return frame
+}
+
+// overlayCentered paints `modal` over `frame` centered in (width, height).
+// Falls back to lipgloss.Place if the modal is bigger than the frame.
+func overlayCentered(frame, modal string, width, height int) string {
+	mw := lipgloss.Width(modal)
+	mh := lipgloss.Height(modal)
+	if mw >= width || mh >= height {
+		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, modal)
+	}
+	col := (width - mw) / 2
+	row := (height - mh) / 2
+	if col < 0 {
+		col = 0
+	}
+	if row < 0 {
+		row = 0
+	}
+	return components.Overlay(frame, modal, col, row)
 }
 
 // helpSpecs returns the KeySpec list a view exposes to the `?` overlay.

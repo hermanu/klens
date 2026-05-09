@@ -15,27 +15,14 @@ type KeySpec struct {
 	Soon  bool
 }
 
-// Help renders a centered modal listing the active view's keymap.
-// `width` and `height` are the FULL terminal dimensions; the modal sizes
-// itself and Place takes care of centering.
+// HelpBody renders the bordered help modal as an opaque block. The shell
+// then overlays it over the live frame so the user keeps context while
+// reading the keymap. Use `Help` for the legacy place-on-blank-canvas form.
 //
 // `help.go` lives in `components` (not `layout`) because the views package
 // already depends on both, while `layout` itself depends on `components` —
 // putting the overlay here is the only direction that avoids an import cycle.
-func Help(width, height int, viewTitle string, specs []KeySpec) string {
-	// Modal width: max(40, longest "key  label" line + 6). Cap at 64.
-	innerW := 40
-	for _, s := range specs {
-		w := lipgloss.Width(s.Key) + lipgloss.Width(s.Label) + 4
-		if w > innerW {
-			innerW = w
-		}
-	}
-	if innerW > 64 {
-		innerW = 64
-	}
-	_ = innerW // reserved for future width-aware rendering; modal currently sizes itself via padding.
-
+func HelpBody(viewTitle string, specs []KeySpec) string {
 	title := lipgloss.NewStyle().
 		Foreground(theme.ColorAccent).
 		Bold(true).
@@ -59,14 +46,18 @@ func Help(width, height int, viewTitle string, specs []KeySpec) string {
 	sb.WriteString("\n")
 	sb.WriteString(theme.Faint.Render("? or esc to close"))
 
-	body := lipgloss.NewStyle().
+	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.ColorAccent).
 		Padding(1, 2).
 		Render(sb.String())
+}
 
+// Help renders the help modal centered on a blank canvas (legacy form,
+// kept for the existing test). Prefer `HelpBody` + Overlay for live use.
+func Help(width, height int, viewTitle string, specs []KeySpec) string {
 	return lipgloss.Place(width, height,
 		lipgloss.Center, lipgloss.Center,
-		body,
+		HelpBody(viewTitle, specs),
 	)
 }
