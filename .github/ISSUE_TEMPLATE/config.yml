@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/hermanu/klens/security/advisories/new
+    about: Report security issues privately, not as a public issue.
+  - name: Question or discussion
+    url: https://github.com/hermanu/klens/discussions
+    about: Open-ended questions belong in Discussions, not Issues.

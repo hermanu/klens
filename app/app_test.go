@@ -10,7 +10,7 @@ import (
 // TestModel_PaletteToggle verifies the command palette opens and closes.
 // The test skips gracefully when no kubeconfig is available.
 func TestModel_PaletteToggle(t *testing.T) {
-	m, err := app.New()
+	m, err := app.New("", "")
 	if err != nil {
 		t.Skip("skipping: could not create model:", err)
 	}
@@ -42,7 +42,7 @@ func TestModel_PaletteToggle(t *testing.T) {
 
 // TestModel_QuitKey verifies q returns a Quit command.
 func TestModel_QuitKey(t *testing.T) {
-	m, err := app.New()
+	m, err := app.New("", "")
 	if err != nil {
 		t.Skip("skipping:", err)
 	}

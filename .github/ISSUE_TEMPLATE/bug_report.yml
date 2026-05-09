@@ -1,0 +1,76 @@
+name: Bug report
+description: Something is broken or behaving incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please fill out the sections below so the issue can be reproduced and fixed quickly.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the problem.
+      placeholder: When I press X in view Y, klens does Z instead of the expected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal sequence to trigger the bug.
+      placeholder: |
+        1. Run `klens`
+        2. Open the secrets view (`:sec`)
+        3. Press `enter` on a secret
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: input
+    id: klens-version
+    attributes:
+      label: klens version
+      description: Output of `klens --version` (or commit SHA if running from source).
+      placeholder: v0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: kubectl-version
+    attributes:
+      label: kubectl / cluster version
+      description: Output of `kubectl version --short`.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste any relevant terminal output, error messages, or screenshots.
+      render: shell
+    validations:
+      required: false
