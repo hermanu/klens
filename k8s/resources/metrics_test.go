@@ -89,7 +89,8 @@ func TestMetricsSvc_PodMetrics_SingleNamespace(t *testing.T) {
 
 func TestMetricsSvc_PodMetrics_AllNamespaces(t *testing.T) {
 	ts := time.Now().Truncate(time.Second)
-	cs := newFakeWithMetrics(t,
+	cs := newFakeWithMetrics(
+		t,
 		newPodMetrics("default", "p1", ts),
 		newPodMetrics("kube-system", "p2", ts),
 	)

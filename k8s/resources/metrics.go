@@ -15,10 +15,13 @@ type MetricsSvc struct {
 	cs versioned.Interface
 }
 
+// NewMetricsSvc wraps cs as a MetricsSvc.
 func NewMetricsSvc(cs versioned.Interface) MetricsSvc {
 	return MetricsSvc{cs: cs}
 }
 
+// PodMetrics returns CPU and memory samples for all pods in namespace.
+// An empty namespace samples across all namespaces.
 func (s MetricsSvc) PodMetrics(ctx context.Context, namespace string) ([]PodMetricSample, error) {
 	list, err := s.cs.MetricsV1beta1().PodMetricses(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {

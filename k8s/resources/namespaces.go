@@ -13,10 +13,12 @@ type NamespaceSvc struct {
 	client kubernetes.Interface
 }
 
+// NewNamespaceSvc wraps client as a NamespaceSvc.
 func NewNamespaceSvc(client kubernetes.Interface) *NamespaceSvc {
 	return &NamespaceSvc{client: client}
 }
 
+// ListNamespaces returns all namespaces visible to the kubeconfig credentials.
 func (s *NamespaceSvc) ListNamespaces(ctx context.Context) ([]NamespaceItem, error) {
 	list, err := s.client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 	if err != nil {

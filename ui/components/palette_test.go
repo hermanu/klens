@@ -37,7 +37,7 @@ func TestPalette_Selected(t *testing.T) {
 
 func TestPalette_Navigation(t *testing.T) {
 	cmds := []components.PaletteCmd{
-		{Name: "pods",    Desc: "list pods",    Alias: ":po"},
+		{Name: "pods", Desc: "list pods", Alias: ":po"},
 		{Name: "secrets", Desc: "list secrets", Alias: ":sec"},
 	}
 	p := components.NewPalette(cmds)

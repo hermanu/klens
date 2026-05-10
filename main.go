@@ -63,6 +63,22 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+
+	if err := runProgram(m); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Ensure GoReleaser ldflags symbols are referenced so the linker keeps them.
+	_ = version
+	_ = commit
+	_ = date
+}
+
+// runProgram starts the BubbleTea program and owns the watcher lifecycle.
+// Returning an error lets main() call os.Exit after this function's defer
+// (watcher stop) has already run.
+func runProgram(m app.Model) error {
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	// Hard-kill safety net — Bubble Tea translates the first SIGINT to a
@@ -83,10 +99,10 @@ func main() {
 		os.Exit(130)
 	}()
 
-	// Watcher lifecycle is owned by main.go so context switches can swap it
-	// without leaking informers. The restarter closure below captures `w` by
-	// reference; both `defer Stop()` and runtime tear-downs read the latest
-	// pointer, and Watcher.Stop is sync.Once-guarded against double-close.
+	// Watcher lifecycle is owned here so context switches can swap it without
+	// leaking informers. The restarter closure captures `w` by reference; both
+	// defer Stop() and runtime tear-downs read the latest pointer, and
+	// Watcher.Stop is sync.Once-guarded against double-close.
 	var w *k8sclient.Watcher
 	startWatcher := func(client *k8sclient.Client, ns string, metrics port.MetricsService, logs port.LogService) {
 		nw := k8sclient.NewWatcher(client, ns, p, metrics, logs)
@@ -110,11 +126,7 @@ func main() {
 		}
 		startWatcher(client, ns, metrics, logs)
 	})
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-	_ = version
-	_ = commit
-	_ = date
+
+	_, err := p.Run()
+	return err
 }

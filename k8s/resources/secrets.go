@@ -17,10 +17,12 @@ type SecretSvc struct {
 	client kubernetes.Interface
 }
 
+// NewSecretSvc creates a SecretSvc backed by the given Kubernetes client.
 func NewSecretSvc(client kubernetes.Interface) *SecretSvc {
 	return &SecretSvc{client: client}
 }
 
+// ListSecrets returns all secrets in namespace. Data is omitted for cost; use GetSecret to fetch values.
 func (s *SecretSvc) ListSecrets(ctx context.Context, namespace string) ([]SecretItem, error) {
 	list, err := s.client.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -49,6 +51,7 @@ func (s *SecretSvc) ListSecrets(ctx context.Context, namespace string) ([]Secret
 	return items, nil
 }
 
+// GetSecret fetches a single secret including its full decoded Data map.
 func (s *SecretSvc) GetSecret(ctx context.Context, namespace, name string) (SecretItem, error) {
 	sec, err := s.client.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -64,6 +67,8 @@ func (s *SecretSvc) GetSecret(ctx context.Context, namespace, name string) (Secr
 	}, nil
 }
 
+// UpdateSecret replaces the data of an existing secret via Get-then-Update so
+// other fields (Type, annotations) survive the write.
 func (s *SecretSvc) UpdateSecret(ctx context.Context, namespace, name string, data map[string][]byte) error {
 	sec, err := s.client.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -74,6 +79,7 @@ func (s *SecretSvc) UpdateSecret(ctx context.Context, namespace, name string, da
 	return err
 }
 
+// CreateSecret creates a new Opaque secret with the supplied data.
 func (s *SecretSvc) CreateSecret(ctx context.Context, namespace, name string, data map[string][]byte) error {
 	sec := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
@@ -84,6 +90,7 @@ func (s *SecretSvc) CreateSecret(ctx context.Context, namespace, name string, da
 	return err
 }
 
+// DeleteSecret deletes the named secret.
 func (s *SecretSvc) DeleteSecret(ctx context.Context, namespace, name string) error {
 	return s.client.CoreV1().Secrets(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 }

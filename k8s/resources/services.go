@@ -16,10 +16,12 @@ type ServiceSvc struct {
 	client kubernetes.Interface
 }
 
+// NewServiceSvc creates a ServiceSvc backed by the given Kubernetes client.
 func NewServiceSvc(client kubernetes.Interface) *ServiceSvc {
 	return &ServiceSvc{client: client}
 }
 
+// ListServices returns all services in namespace.
 func (s *ServiceSvc) ListServices(ctx context.Context, namespace string) ([]ServiceItem, error) {
 	list, err := s.client.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {

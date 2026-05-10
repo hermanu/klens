@@ -26,9 +26,9 @@ const (
 // row[0] (which contains an ANSI-coded NSChip).
 var configMapCols = []components.Column{
 	{Header: "NAMESPACE", Width: 14},
-	{Header: "NAME", Width: 44, Flex: true},
+	{Header: colName, Width: 44, Flex: true},
 	{Header: "KEYS", Width: 6, Align: components.AlignRight},
-	{Header: "AGE", Width: 6, Align: components.AlignRight},
+	{Header: colAge, Width: 6, Align: components.AlignRight},
 }
 
 // ConfigMapSavedMsg is sent after a configmap save attempt.
@@ -63,6 +63,7 @@ type ConfigMapsView struct {
 	saveMsg    string
 }
 
+// NewConfigMapsView creates a ConfigMapsView wired to svc and scoped to namespace.
 func NewConfigMapsView(svc port.ConfigMapService, namespace string) ConfigMapsView {
 	return ConfigMapsView{
 		svc:       svc,
@@ -71,6 +72,7 @@ func NewConfigMapsView(svc port.ConfigMapService, namespace string) ConfigMapsVi
 	}
 }
 
+// Update routes tea.Msg through the configmaps view and its embedded form editor.
 func (v ConfigMapsView) Update(msg tea.Msg) (ConfigMapsView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case k8s.ConfigMapsUpdatedMsg:
@@ -153,7 +155,7 @@ func (v ConfigMapsView) Update(msg tea.Msg) (ConfigMapsView, tea.Cmd) {
 
 func (v ConfigMapsView) updateList(msg tea.KeyMsg) (ConfigMapsView, tea.Cmd) {
 	switch msg.String() {
-	case "j", "down":
+	case "j", keyDown:
 		v.table = v.table.MoveDown()
 	case "k", "up":
 		v.table = v.table.MoveUp()
@@ -161,7 +163,7 @@ func (v ConfigMapsView) updateList(msg tea.KeyMsg) (ConfigMapsView, tea.Cmd) {
 		v.table = v.table.MoveTop()
 	case "G":
 		v.table = v.table.MoveBottom()
-	case "enter":
+	case keyEnter:
 		return v.openEditor()
 	}
 	return v, nil
@@ -253,7 +255,7 @@ func (v ConfigMapsView) Count() (visible, total int) {
 func (v ConfigMapsView) Chips() []layout.FilterChip {
 	chips := []layout.FilterChip{}
 	if v.mode == configMapsModeEdit {
-		chips = append(chips, layout.FilterChip{Key: "mode", Value: "edit", Strong: true})
+		chips = append(chips, layout.FilterChip{Key: "mode", Value: labelEdit, Strong: true})
 	}
 	if v.filter != "" {
 		chips = append(chips, layout.FilterChip{Key: "/", Value: v.filter, Strong: true})
@@ -268,15 +270,15 @@ func (v ConfigMapsView) Chips() []layout.FilterChip {
 func (v ConfigMapsView) KeyHints() []layout.KeyHint {
 	if v.mode == configMapsModeEdit {
 		return []layout.KeyHint{
-			{Key: "↵", Label: "edit"},
-			{Key: "esc", Label: "back"},
+			{Key: "↵", Label: labelEdit},
+			{Key: keyEsc, Label: "back"},
 			{Key: "o", Label: "add"},
 			{Key: "dd", Label: "del"},
 		}
 	}
 	return []layout.KeyHint{
-		{Key: "↵", Label: "edit"},
-		{Key: "/", Label: "filter"},
+		{Key: "↵", Label: labelEdit},
+		{Key: "/", Label: labelFilter},
 	}
 }
 
@@ -286,7 +288,7 @@ func (v ConfigMapsView) KeyMap() []components.KeySpec {
 	if v.mode == configMapsModeEdit {
 		return []components.KeySpec{
 			{Key: "↵", Label: "edit selected row"},
-			{Key: "esc", Label: "back / open exit confirm"},
+			{Key: keyEsc, Label: "back / open exit confirm"},
 			{Key: "j / k", Label: "next / prev row"},
 			{Key: "o", Label: "add row"},
 			{Key: "dd", Label: "delete row"},
@@ -294,9 +296,9 @@ func (v ConfigMapsView) KeyMap() []components.KeySpec {
 		}
 	}
 	return []components.KeySpec{
-		{Key: "↵", Label: "edit"},
-		{Key: "/", Label: "filter"},
-		{Key: "y", Label: "yaml", Soon: true},
+		{Key: "↵", Label: labelEdit},
+		{Key: "/", Label: labelFilter},
+		{Key: "y", Label: labelYAML, Soon: true},
 		{Key: "d", Label: "delete", Soon: true},
 	}
 }
@@ -362,7 +364,7 @@ func (v ConfigMapsView) focusKVs() []layout.KV {
 		}
 		kvs = append(kvs, layout.KV{Key: "  · " + k, Value: ""})
 	}
-	kvs = append(kvs, layout.KV{Key: "age", Value: fmtAge(cm.Age)})
+	kvs = append(kvs, layout.KV{Key: kvAge, Value: fmtAge(cm.Age)})
 	return kvs
 }
 

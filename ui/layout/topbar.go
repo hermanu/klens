@@ -185,7 +185,7 @@ func truncToWidth(s string, n int) string {
 	if lipgloss.Width(s) <= n {
 		return s
 	}
-	for len(s) > 0 && lipgloss.Width(s) > n {
+	for s != "" && lipgloss.Width(s) > n {
 		s = s[:len(s)-1]
 	}
 	return s

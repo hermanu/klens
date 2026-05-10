@@ -131,10 +131,11 @@ The form component (`ui/components/form.go`) is a mode-separated state machine: 
 ## Conventions
 
 - `port.SvcService` is named that way intentionally to avoid collision with the generic word "service" — don't rename.
-- Comments in this codebase explain **why** (constraints, invariants like "Data intentionally omitted"); don't add WHAT-comments.
+- All exported symbols **must have a doc comment** — `golangci-lint` enforces this via `revive/exported`. The doc comment should explain **why** the symbol exists or any non-obvious constraint; don't restate what the name already says.
+- Inline comments explain **why** (constraints, invariants like "Data intentionally omitted"); don't add WHAT-comments.
 - Two-tone palette: muted everywhere inactive, accent (with bold) on the active item. The active resource indicator in the top bar (`pods 4/56`) follows the same rule — V is bold accent, `/T` is muted.
 - KeyHints honesty: only advertise keys the view's `Update` actually handles. `KeyMap()` carries the full keymap (including `Soon: true` items) for the `?` overlay.
-- `golangci-lint` runs `misspell`, `unconvert`, `unparam` on top of the standard set; `unparam` is disabled for `_test.go`.
+- `golangci-lint` enforces the full linter set defined in `.golangci.yml` (see that file for rationale comments on each linter). Run `just lint` before committing.
 - Releases are driven by GoReleaser (`.goreleaser.yml`); `main.version/commit/date` are populated via `-ldflags` at build time, so `go build` locally yields `version="dev"` — that's expected.
 
 ## Adding a new resource type

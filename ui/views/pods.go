@@ -29,7 +29,7 @@ var podCols = []components.Column{
 	// it — pod names are routinely long enough to truncate at 36, and there's
 	// no point leaving a blank band on the right of the table while names get
 	// chopped.
-	{Header: "NAME", Width: 36, Flex: true},
+	{Header: colName, Width: 36, Flex: true},
 	{Header: "READY", Width: 6, Align: components.AlignRight},
 	{Header: "STATUS", Width: 18},
 	{Header: "RST", Width: 4, Align: components.AlignRight},
@@ -38,7 +38,7 @@ var podCols = []components.Column{
 	{Header: "TREND", Width: 10},
 	{Header: "IP", Width: 14},
 	{Header: "NODE", Width: 18},
-	{Header: "AGE", Width: 6, Align: components.AlignRight},
+	{Header: colAge, Width: 6, Align: components.AlignRight},
 }
 
 // podSeries is the per-pod ring buffer of CPU + memory samples used for the
@@ -67,6 +67,7 @@ type PodsView struct {
 	err        error
 }
 
+// NewPodsView creates a PodsView wired to svc and scoped to namespace.
 func NewPodsView(svc port.PodService, namespace string) PodsView {
 	return PodsView{
 		svc:       svc,
@@ -83,6 +84,8 @@ type podsListedMsg struct {
 	err  error
 }
 
+// Update routes tea.Msg through the pods view, handling watcher events,
+// metrics samples, log tail lines, and key input.
 func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case k8s.PodsUpdatedMsg:
@@ -136,7 +139,7 @@ func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "j", "down":
+		case "j", keyDown:
 			v.table = v.table.MoveDown()
 			v.logTail = nil // focus changed; drop old logs
 		case "k", "up":
@@ -165,7 +168,7 @@ func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
 					},
 				)
 			}
-		case "enter":
+		case keyEnter:
 			// Open the full-screen describe view for the focused pod —
 			// k9s-style detail dump (image, containers, env, conditions...).
 			if pod := v.SelectedPod(); pod != nil {
@@ -204,7 +207,7 @@ func (v PodsView) SelectedPod() *resources.PodItem {
 }
 
 // Title implements views.View.
-func (v PodsView) Title() string { return "pods" }
+func (v PodsView) Title() string { return labelPods }
 
 // Filter implements views.Filterable so the shell can mirror the per-view
 // filter into the bottom command-bar input on view switch.
@@ -254,8 +257,8 @@ func (v PodsView) Scope() string { return v.scope }
 func (v PodsView) KeyHints() []layout.KeyHint {
 	return []layout.KeyHint{
 		{Key: "↵", Label: "describe"},
-		{Key: "l", Label: "logs"},
-		{Key: "/", Label: "filter"},
+		{Key: "l", Label: labelLogs},
+		{Key: "/", Label: labelFilter},
 	}
 }
 

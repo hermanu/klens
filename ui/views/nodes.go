@@ -13,11 +13,11 @@ import (
 )
 
 var nodeCols = []components.Column{
-	{Header: "NAME", Width: 36, Flex: true},
+	{Header: colName, Width: 36, Flex: true},
 	{Header: "STATUS", Width: 12},
 	{Header: "ROLES", Width: 18},
 	{Header: "VERSION", Width: 16},
-	{Header: "AGE", Width: 6, Align: components.AlignRight},
+	{Header: colAge, Width: 6, Align: components.AlignRight},
 }
 
 // NodesView lists nodes and supports `l` to fan out a multi-pod log tail
@@ -62,6 +62,8 @@ type nodePodsResolvedMsg struct {
 	err       error
 }
 
+// Update routes tea.Msg through the nodes view, handling watcher events and
+// pod resolution for log fan-out.
 func (v NodesView) Update(msg tea.Msg) (NodesView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case k8s.NodesUpdatedMsg:
@@ -98,7 +100,7 @@ func (v NodesView) Update(msg tea.Msg) (NodesView, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "j", "down":
+		case "j", keyDown:
 			v.table = v.table.MoveDown()
 		case "k", "up":
 			v.table = v.table.MoveUp()
@@ -130,7 +132,7 @@ func (v NodesView) Update(msg tea.Msg) (NodesView, tea.Cmd) {
 					pods:      names,
 				}
 			}
-		case "enter":
+		case keyEnter:
 			// Drill-down: switch to pods filtered by node name. Useful for
 			// "show me everything running on this node".
 			idx := v.table.SelectedIndex()
@@ -191,19 +193,19 @@ func (v NodesView) Chips() []layout.FilterChip {
 // the node's dominant namespace); cordon/drain/yaml stay Soon.
 func (v NodesView) KeyHints() []layout.KeyHint {
 	return []layout.KeyHint{
-		{Key: "↵", Label: "pods"},
-		{Key: "l", Label: "logs"},
-		{Key: "/", Label: "filter"},
+		{Key: "↵", Label: labelPods},
+		{Key: "l", Label: labelLogs},
+		{Key: "/", Label: labelFilter},
 	}
 }
 
 // KeyMap implements views.KeyMap and powers the `?` help overlay.
 func (v NodesView) KeyMap() []components.KeySpec {
 	return []components.KeySpec{
-		{Key: "↵", Label: "pods"},
-		{Key: "l", Label: "logs"},
-		{Key: "/", Label: "filter"},
-		{Key: "y", Label: "yaml", Soon: true},
+		{Key: "↵", Label: labelPods},
+		{Key: "l", Label: labelLogs},
+		{Key: "/", Label: labelFilter},
+		{Key: "y", Label: labelYAML, Soon: true},
 		{Key: "c", Label: "cordon", Soon: true},
 		{Key: "d", Label: "drain", Soon: true},
 	}
@@ -263,7 +265,7 @@ func (v NodesView) focusKVs() []layout.KV {
 	if n.Pods != "" {
 		kvs = append(kvs, layout.KV{Key: "pods cap", Value: n.Pods})
 	}
-	kvs = append(kvs, layout.KV{Key: "age", Value: fmtAge(n.Age)})
+	kvs = append(kvs, layout.KV{Key: kvAge, Value: fmtAge(n.Age)})
 	return kvs
 }
 
@@ -290,7 +292,7 @@ func (v NodesView) visibleNodes() []resources.NodeItem {
 //
 // Empty input returns an empty namespace and slice — callers should treat that
 // as "nothing to tail".
-func pickDominantNamespace(items []resources.PodItem) (string, []string) {
+func pickDominantNamespace(items []resources.PodItem) (namespace string, podNames []string) {
 	if len(items) == 0 {
 		return "", nil
 	}
@@ -299,14 +301,14 @@ func pickDominantNamespace(items []resources.PodItem) (string, []string) {
 		counts[p.Namespace]++
 	}
 	top := ""
-	max := 0
+	maxCount := 0
 	for ns, n := range counts {
-		if n > max {
+		if n > maxCount {
 			top = ns
-			max = n
+			maxCount = n
 		}
 	}
-	names := make([]string, 0, max)
+	names := make([]string, 0, maxCount)
 	for _, p := range items {
 		if p.Namespace == top {
 			names = append(names, p.Name)

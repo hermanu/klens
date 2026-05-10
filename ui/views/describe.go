@@ -62,6 +62,8 @@ func (v DescribeView) WithFocus(namespace, pod string) (DescribeView, tea.Cmd) {
 	}
 }
 
+// Update routes tea.Msg through the pod describe view, handling fetch results
+// and scroll/navigation keys.
 func (v DescribeView) Update(msg tea.Msg) (DescribeView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case describeFetchedMsg:
@@ -76,7 +78,7 @@ func (v DescribeView) Update(msg tea.Msg) (DescribeView, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "j", "down":
+		case "j", keyDown:
 			v.offset++
 		case "k", "up":
 			if v.offset > 0 {
@@ -84,7 +86,7 @@ func (v DescribeView) Update(msg tea.Msg) (DescribeView, tea.Cmd) {
 			}
 		case "g":
 			v.offset = 0
-		case "esc":
+		case keyEsc:
 			return v, func() tea.Msg { return BackToPodsMsg{} }
 		}
 	}
@@ -113,7 +115,7 @@ func (v DescribeView) Chips() []layout.FilterChip {
 func (v DescribeView) KeyHints() []layout.KeyHint {
 	return []layout.KeyHint{
 		{Key: "j/k", Label: "scroll"},
-		{Key: "esc", Label: "back"},
+		{Key: keyEsc, Label: "back"},
 	}
 }
 
@@ -188,7 +190,8 @@ func (v DescribeView) bodyLines() []string {
 
 	var out []string
 	out = append(out, section("metadata"))
-	out = append(out,
+	out = append(
+		out,
 		kv("name", d.Name),
 		kv("namespace", d.Namespace),
 		kv("node", fallbackOr(d.Node)),
@@ -197,7 +200,7 @@ func (v DescribeView) bodyLines() []string {
 		kv("service acct", fallbackOr(d.ServiceAccount)),
 		kv("qos class", fallbackOr(d.QoSClass)),
 		kv("restart policy", fallbackOr(d.RestartPolicy)),
-		kv("age", fmtAge(d.Age)),
+		kv(kvAge, fmtAge(d.Age)),
 		kv("phase", d.Phase),
 	)
 

@@ -39,11 +39,11 @@ func (v GenericDescribeView) WithFocus(title string, kvs []layout.KV) GenericDes
 	return v
 }
 
+// Update routes tea.Msg through the generic key-value describe view.
 func (v GenericDescribeView) Update(msg tea.Msg) (GenericDescribeView, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	if msg, ok := msg.(tea.KeyMsg); ok {
 		switch msg.String() {
-		case "j", "down":
+		case "j", keyDown:
 			v.offset++
 		case "k", "up":
 			if v.offset > 0 {
@@ -55,7 +55,7 @@ func (v GenericDescribeView) Update(msg tea.Msg) (GenericDescribeView, tea.Cmd) 
 			// Snap to bottom — clamping happens at render time so we set a
 			// large value here and let the renderer pin it.
 			v.offset = len(v.kvs)
-		case "esc":
+		case keyEsc:
 			return v, func() tea.Msg { return BackToPodsMsg{} }
 		}
 	}
@@ -83,7 +83,7 @@ func (v GenericDescribeView) Chips() []layout.FilterChip {
 func (v GenericDescribeView) KeyHints() []layout.KeyHint {
 	return []layout.KeyHint{
 		{Key: "j/k", Label: "scroll"},
-		{Key: "esc", Label: "back"},
+		{Key: keyEsc, Label: "back"},
 	}
 }
 
@@ -93,7 +93,7 @@ func (v GenericDescribeView) KeyMap() []components.KeySpec {
 		{Key: "j/k", Label: "scroll"},
 		{Key: "g", Label: "top"},
 		{Key: "G", Label: "bottom"},
-		{Key: "esc", Label: "back"},
+		{Key: keyEsc, Label: "back"},
 	}
 }
 

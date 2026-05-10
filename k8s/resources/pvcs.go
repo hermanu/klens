@@ -15,10 +15,12 @@ type PVCSvc struct {
 	client kubernetes.Interface
 }
 
+// NewPVCSvc creates a PVCSvc backed by the given Kubernetes client.
 func NewPVCSvc(client kubernetes.Interface) *PVCSvc {
 	return &PVCSvc{client: client}
 }
 
+// ListPVCs returns all PersistentVolumeClaims in namespace.
 func (s *PVCSvc) ListPVCs(ctx context.Context, namespace string) ([]PVCItem, error) {
 	list, err := s.client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {

@@ -9,6 +9,7 @@ type Resource interface {
 	GetAge() time.Duration
 }
 
+// PodItem is a minimal pod summary used by the pods list view.
 type PodItem struct {
 	Name      string
 	Namespace string
@@ -20,8 +21,13 @@ type PodItem struct {
 	IP        string
 }
 
-func (p PodItem) GetName() string       { return p.Name }
-func (p PodItem) GetNamespace() string  { return p.Namespace }
+// GetName implements Resource.
+func (p PodItem) GetName() string { return p.Name }
+
+// GetNamespace implements Resource.
+func (p PodItem) GetNamespace() string { return p.Namespace }
+
+// GetAge implements Resource.
 func (p PodItem) GetAge() time.Duration { return p.Age }
 
 // ContainerInfo is one container's spec/status pair, populating the
@@ -58,6 +64,7 @@ type PodDescription struct {
 	Conditions     []string // e.g. "Ready=True", "PodScheduled=True"
 }
 
+// DeploymentItem is a minimal deployment summary used by the deployments list view.
 type DeploymentItem struct {
 	Name      string
 	Namespace string
@@ -71,10 +78,16 @@ type DeploymentItem struct {
 	Age       time.Duration
 }
 
-func (d DeploymentItem) GetName() string       { return d.Name }
-func (d DeploymentItem) GetNamespace() string  { return d.Namespace }
+// GetName implements Resource.
+func (d DeploymentItem) GetName() string { return d.Name }
+
+// GetNamespace implements Resource.
+func (d DeploymentItem) GetNamespace() string { return d.Namespace }
+
+// GetAge implements Resource.
 func (d DeploymentItem) GetAge() time.Duration { return d.Age }
 
+// ServiceItem is a minimal service summary used by the services list view.
 type ServiceItem struct {
 	Name       string
 	Namespace  string
@@ -86,24 +99,38 @@ type ServiceItem struct {
 	Age        time.Duration
 }
 
-func (s ServiceItem) GetName() string       { return s.Name }
-func (s ServiceItem) GetNamespace() string  { return s.Namespace }
+// GetName implements Resource.
+func (s ServiceItem) GetName() string { return s.Name }
+
+// GetNamespace implements Resource.
+func (s ServiceItem) GetNamespace() string { return s.Namespace }
+
+// GetAge implements Resource.
 func (s ServiceItem) GetAge() time.Duration { return s.Age }
 
+// SecretItem is a minimal secret summary used by the secrets list view.
+// Data is only populated on detail fetch via GetSecret — not in list mode.
 type SecretItem struct {
 	Name      string
 	Namespace string
 	Type      string
 	Keys      int
-	KeyNames  []string          // sorted key names — populated by ListSecrets so the SPEC pane can preview top keys without fetching values
+	KeyNames  []string // sorted key names — populated by ListSecrets so the SPEC pane can preview top keys without fetching values
 	Age       time.Duration
 	Data      map[string][]byte // decoded bytes; only populated on detail fetch via GetSecret
 }
 
-func (s SecretItem) GetName() string       { return s.Name }
-func (s SecretItem) GetNamespace() string  { return s.Namespace }
+// GetName implements Resource.
+func (s SecretItem) GetName() string { return s.Name }
+
+// GetNamespace implements Resource.
+func (s SecretItem) GetNamespace() string { return s.Namespace }
+
+// GetAge implements Resource.
 func (s SecretItem) GetAge() time.Duration { return s.Age }
 
+// ConfigMapItem is a minimal configmap summary used by the configmaps list view.
+// Data is only populated on detail fetch via GetConfigMap — not in list mode.
 type ConfigMapItem struct {
 	Name      string
 	Namespace string
@@ -113,10 +140,16 @@ type ConfigMapItem struct {
 	Data      map[string]string
 }
 
-func (c ConfigMapItem) GetName() string       { return c.Name }
-func (c ConfigMapItem) GetNamespace() string  { return c.Namespace }
+// GetName implements Resource.
+func (c ConfigMapItem) GetName() string { return c.Name }
+
+// GetNamespace implements Resource.
+func (c ConfigMapItem) GetNamespace() string { return c.Namespace }
+
+// GetAge implements Resource.
 func (c ConfigMapItem) GetAge() time.Duration { return c.Age }
 
+// NamespaceItem is a minimal namespace summary used by the namespaces list view.
 type NamespaceItem struct {
 	Name   string
 	Status string
@@ -124,10 +157,16 @@ type NamespaceItem struct {
 	Age    time.Duration
 }
 
-func (n NamespaceItem) GetName() string       { return n.Name }
-func (n NamespaceItem) GetNamespace() string  { return "" }
+// GetName implements Resource.
+func (n NamespaceItem) GetName() string { return n.Name }
+
+// GetNamespace implements Resource — namespaces are cluster-scoped, so always "".
+func (n NamespaceItem) GetNamespace() string { return "" }
+
+// GetAge implements Resource.
 func (n NamespaceItem) GetAge() time.Duration { return n.Age }
 
+// NodeItem is a minimal node summary used by the nodes list view.
 type NodeItem struct {
 	Name    string
 	Status  string
@@ -141,10 +180,16 @@ type NodeItem struct {
 	Age     time.Duration
 }
 
-func (n NodeItem) GetName() string       { return n.Name }
-func (n NodeItem) GetNamespace() string  { return "" }
+// GetName implements Resource.
+func (n NodeItem) GetName() string { return n.Name }
+
+// GetNamespace implements Resource — nodes are cluster-scoped, so always "".
+func (n NodeItem) GetNamespace() string { return "" }
+
+// GetAge implements Resource.
 func (n NodeItem) GetAge() time.Duration { return n.Age }
 
+// PVCItem is a minimal PersistentVolumeClaim summary used by the PVCs list view.
 type PVCItem struct {
 	Name         string
 	Namespace    string
@@ -156,8 +201,13 @@ type PVCItem struct {
 	Age          time.Duration
 }
 
-func (p PVCItem) GetName() string       { return p.Name }
-func (p PVCItem) GetNamespace() string  { return p.Namespace }
+// GetName implements Resource.
+func (p PVCItem) GetName() string { return p.Name }
+
+// GetNamespace implements Resource.
+func (p PVCItem) GetNamespace() string { return p.Namespace }
+
+// GetAge implements Resource.
 func (p PVCItem) GetAge() time.Duration { return p.Age }
 
 // PodMetricSample is one metrics-server reading for a pod, taken at Time.

@@ -7,6 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Config holds klens' persisted settings, read from ~/.klens/config.yaml.
 type Config struct {
 	Kubeconfig string `yaml:"kubeconfig"`
 	Accent     string `yaml:"accent"`
@@ -35,6 +36,8 @@ func defaultPath() string {
 	return filepath.Join(home, ".klens", "config.yaml")
 }
 
+// Load reads the config from path. An empty path defaults to ~/.klens/config.yaml.
+// A missing file is not an error — the caller receives default values.
 func Load(path string) (Config, error) {
 	cfg := defaults()
 	if path == "" {
@@ -47,7 +50,8 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return cfg, err
 	}
-	return cfg, yaml.Unmarshal(data, &cfg)
+	err = yaml.Unmarshal(data, &cfg)
+	return cfg, err
 }
 
 // Save writes the config to disk, creating ~/.klens/ if needed. Path "" uses

@@ -64,10 +64,10 @@ const (
 // Model is the root Bubble Tea model. It owns all views, the input, the
 // palette, and the cluster info shown in the top bar.
 type Model struct {
-	client       *k8sclient.Client
-	services     port.Services
-	namespace    string // active namespace filter ("" = all)
-	cluster      ClusterInfo
+	client    *k8sclient.Client
+	services  port.Services
+	namespace string // active namespace filter ("" = all)
+	cluster   ClusterInfo
 
 	current         viewKind
 	pods            views.PodsView
@@ -187,8 +187,9 @@ func viewKindName(v viewKind) string {
 		return "nodes"
 	case viewPVCs:
 		return "pvcs"
+	default:
+		return "" // transient sub-views (logs, describe) are not persisted
 	}
-	return ""
 }
 
 // ClusterInfo is the top-bar context block. Populated at New() time from the
@@ -366,6 +367,9 @@ func (m Model) FlashError() string { return m.flashErr }
 // verify filter persistence across drill-downs.
 func (m Model) PodsFilter() string { return m.pods.Filter() }
 
+// Init implements tea.Model. It fires one UpdatedMsg per resource type so all
+// view counts populate on first render, not just the focused view. No-ops when
+// client is nil (context picker / offline boot).
 func (m Model) Init() tea.Cmd {
 	// No cluster wired (CI / context picker / boot before kubeconfig
 	// resolves) → no fetches. Without this guard the *UpdatedMsg
@@ -389,6 +393,9 @@ func (m Model) Init() tea.Cmd {
 	)
 }
 
+// Update implements tea.Model. It routes messages through the global key handler,
+// the active sub-view, or the broadcast path (watcher events) and returns an updated
+// Model plus any Cmds to run.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Emergency exit — ctrl+c must always quit, regardless of palette state,
 	// filter focus, or any view's keymap. Bind this before any other key
@@ -419,7 +426,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// so the inner editor's `:`, `?`, `/` etc. don't fight the app's
 		// command palette / help overlay / filter focus. ctrl+c is already
 		// handled above as the emergency exit.
-		if cap, ok := m.currentView().(views.Capturing); ok && cap.CapturesKeys() {
+		if capt, ok := m.currentView().(views.Capturing); ok && capt.CapturesKeys() {
 			return m.routeToCurrentView(msg)
 		}
 		// `?` toggles the help overlay from any state where the filter is not
@@ -583,7 +590,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // broadcastToViews routes msg through every view's Update. Used for watcher /
 // metrics ticks where each view filters by its own message type.
 func (m Model) broadcastToViews(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
+	cmds := make([]tea.Cmd, 0, 11)
 	var c tea.Cmd
 	m.pods, c = m.pods.Update(msg)
 	cmds = append(cmds, c)
@@ -798,7 +805,7 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if picked == nil {
 			// Per design call: flash a red banner instead of silently
 			// dismissing, so the user knows the input wasn't a command.
-			m.flashErr = fmt.Sprintf("no command \"%s\"", raw)
+			m.flashErr = fmt.Sprintf("no command %q", raw)
 			m.commandInput.SetValue("")
 			return m, tea.Tick(flashTTL, func(time.Time) tea.Msg { return flashClearMsg{} })
 		}
@@ -896,8 +903,9 @@ func (m Model) reloadCmd() tea.Cmd {
 		return func() tea.Msg { return k8sclient.NodesUpdatedMsg{} }
 	case viewPVCs:
 		return func() tea.Msg { return k8sclient.PVCsUpdatedMsg{} }
+	default:
+		return nil // sub-views (logs, describe) have no periodic reload
 	}
-	return nil
 }
 
 // View composes the modern shell:
@@ -1200,7 +1208,7 @@ func renderSuggestionsStrip(width int, suggestions []components.Command, selecte
 	// Width-clip at the right so an overflow strip doesn't push the prompt
 	// onto a second visual row.
 	if w := lipgloss.Width(line); w > width-2 {
-		line = lipgloss.NewStyle().MaxWidth(width - 4).Render(line) + theme.Faint.Render(" …")
+		line = lipgloss.NewStyle().MaxWidth(width-4).Render(line) + theme.Faint.Render(" …")
 	}
 	return theme.Panel.Width(width).Padding(0, 1).Render(line)
 }
@@ -1319,4 +1327,3 @@ func fallback(s, def string) string {
 	}
 	return s
 }
-

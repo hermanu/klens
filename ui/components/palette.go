@@ -77,8 +77,7 @@ func (p Palette) MoveUp() (Palette, tea.Cmd) {
 
 // Update handles tea.KeyMsg for input and navigation. Returns updated Palette + Cmd.
 func (p Palette) Update(msg tea.Msg) (Palette, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	if msg, ok := msg.(tea.KeyMsg); ok {
 		switch msg.String() {
 		case "ctrl+n", "down":
 			return p.MoveDown()
