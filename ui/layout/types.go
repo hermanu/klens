@@ -59,12 +59,12 @@ type NavItem struct {
 	Count    int
 }
 
-// NavStripConfig holds the data the horizontal nav strip renders.
+// NavRailConfig holds the data the left-side vertical nav rail renders.
 //
 // VisibleCount/TotalCount are the active view's filtered/total counts; they
 // only affect the active item, which shows `V/T` when filtered and just `T`
 // when unfiltered. Inactive items always render their item.Count (total).
-type NavStripConfig struct {
+type NavRailConfig struct {
 	Items        []NavItem
 	Current      string // active item Key
 	VisibleCount int

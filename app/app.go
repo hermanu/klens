@@ -35,17 +35,17 @@ const (
 	viewGenericDescribe // dedicated full-screen KV describe for non-pod resources (PVCs, etc.)
 )
 
-// Geometry — the modern shell's pane sizes. The horizontal layout has three
-// fixed-height chrome rows above the content area (top bar + divider, nav
-// strip, filter chips) and the command bar on the bottom. The right details
-// pane drops below 120 cols so the table never gets squeezed under ~80.
+// Geometry — the modern shell's pane sizes. The vertical rail sits on the
+// left; the right details pane drops below `minDetailsAt`; both drop below
+// `minRailAt` so very narrow terminals get a table-only mode.
 const (
-	detailsWidth   = 44
-	topBarHeight   = 2 // 1 content row + 1 divider
-	navStripHeight = 2 // 1 content row + 1 divider so the strip reads as its own band
-	cmdBarHeight   = 1
-	chipsHeight    = 1
-	minDetailsAt   = 120
+	navRailWidth = 22
+	detailsWidth = 44
+	topBarHeight = 2 // 1 content row + 1 divider
+	cmdBarHeight = 1
+	chipsHeight  = 1
+	minDetailsAt = 120
+	minRailAt    = 90 // below this width, drop the rail to give the table breathing room
 )
 
 // Model is the root Bubble Tea model. It owns all views, the input, the
@@ -672,45 +672,48 @@ func (m Model) View() string {
 		Totals:       m.totals(),
 	})
 
-	nav := layout.NavStrip(m.width, layout.NavStripConfig{
-		Items:        m.navItems(),
-		Current:      v.Title(),
-		VisibleCount: visible,
-		TotalCount:   total,
-	})
-	navDiv := lipgloss.NewStyle().
-		Foreground(theme.ColorBorder).
-		Render(strings.Repeat("─", m.width))
-	nav = lipgloss.JoinVertical(lipgloss.Left, nav, navDiv)
-
 	// Sub-views (logs, describe, genericDescribe) take the full content area —
 	// hide the right details pane so their content isn't squashed.
 	showDetails := m.width >= minDetailsAt &&
 		m.current != viewLogs &&
 		m.current != viewDescribe &&
 		m.current != viewGenericDescribe
+	showRail := m.width >= minRailAt
 
-	contentH := m.height - topBarHeight - navStripHeight - cmdBarHeight - chipsHeight
+	contentH := m.height - topBarHeight - cmdBarHeight - chipsHeight
 	if contentH < 1 {
 		contentH = 1
 	}
 
+	railW := 0
+	if showRail {
+		railW = navRailWidth
+	}
 	detW := 0
 	if showDetails {
 		detW = detailsWidth
 	}
-	midW := m.width - detW
+	midW := m.width - railW - detW
 
 	chips := layout.FilterChips(midW, v.Chips(), visible, total)
 	tbl := v.Table(midW, contentH)
-
 	center := lipgloss.JoinVertical(lipgloss.Left, chips, tbl)
 
-	rows := []string{center}
-	if showDetails {
-		rows = append(rows, v.Details(detW, contentH+chipsHeight))
+	cols := []string{}
+	if showRail {
+		rail := layout.NavRail(railW, contentH+chipsHeight, layout.NavRailConfig{
+			Items:        m.navItems(),
+			Current:      v.Title(),
+			VisibleCount: visible,
+			TotalCount:   total,
+		})
+		cols = append(cols, rail)
 	}
-	row := lipgloss.JoinHorizontal(lipgloss.Top, rows...)
+	cols = append(cols, center)
+	if showDetails {
+		cols = append(cols, v.Details(detW, contentH+chipsHeight))
+	}
+	row := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
 
 	// Always advertise `?` in the bottom bar — done at the shell level rather
 	// than per-view so adding a new view never requires remembering to add the
@@ -719,7 +722,7 @@ func (m Model) View() string {
 	hints = append(hints, layout.KeyHint{Key: "?", Label: "help"})
 	cmd := layout.CommandBar(m.width, m.commandBarInput(), hints)
 
-	frame := lipgloss.JoinVertical(lipgloss.Left, top, nav, row, cmd)
+	frame := lipgloss.JoinVertical(lipgloss.Left, top, row, cmd)
 
 	if m.showPalette {
 		modal := lipgloss.NewStyle().
