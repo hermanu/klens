@@ -1,6 +1,8 @@
 package k8s
 
 import (
+	"sort"
+
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -14,13 +16,25 @@ type Client struct {
 }
 
 func NewClient(kubeconfigPath string) (*Client, error) {
+	return NewClientForContext(kubeconfigPath, "")
+}
+
+// NewClientForContext is NewClient with an explicit context override. Empty
+// `contextName` falls back to the kubeconfig's current-context (matching
+// NewClient's behaviour). Used by the startup picker when current-context
+// is missing or the user wants to switch clusters.
+func NewClientForContext(kubeconfigPath, contextName string) (*Client, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	if kubeconfigPath != "" {
 		loadingRules.ExplicitPath = kubeconfigPath
 	}
+	overrides := &clientcmd.ConfigOverrides{}
+	if contextName != "" {
+		overrides.CurrentContext = contextName
+	}
 	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		loadingRules,
-		&clientcmd.ConfigOverrides{},
+		overrides,
 	).ClientConfig()
 	if err != nil {
 		return nil, err
@@ -36,17 +50,20 @@ func NewClient(kubeconfigPath string) (*Client, error) {
 	return &Client{Kube: kube, Dynamic: dyn, Config: cfg}, nil
 }
 
-// Contexts returns all available kubeconfig contexts.
+// Contexts returns all available kubeconfig contexts (sorted) plus the
+// current-context name. Returns an empty slice + empty current with no error
+// if kubeconfig is loadable but has no contexts at all.
 func Contexts() ([]string, string, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	raw, err := rules.Load()
 	if err != nil {
 		return nil, "", err
 	}
-	var names []string
+	names := make([]string, 0, len(raw.Contexts))
 	for name := range raw.Contexts {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names, raw.CurrentContext, nil
 }
 

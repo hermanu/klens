@@ -40,16 +40,26 @@ func NavRail(width, height, topPad int, cfg NavRailConfig) string {
 		topPad = 0
 	}
 
+	// Reserve 1 column on the right for a vertical border so the rail reads
+	// as its own enclosed panel — without it the items just float in space
+	// next to the table. Mirrors the `│` border on the right details pane.
+	inner := width - 1
+	if inner < 7 {
+		inner = 7
+	}
+	border := lipgloss.NewStyle().Foreground(theme.ColorBorder).Render("│")
+	blankInner := lipgloss.NewStyle().Width(inner).Render("")
+	blank := blankInner + border
+
 	rows := make([]string, 0, topPad+len(cfg.Items)+1)
-	blank := lipgloss.NewStyle().Width(width).Render("")
 	for i := 0; i < topPad; i++ {
 		rows = append(rows, blank)
 	}
 	for _, it := range cfg.Items {
-		rows = append(rows, navRailRow(width, it, it.Key == cfg.Current, cfg.VisibleCount, cfg.TotalCount))
+		rows = append(rows, navRailRow(inner, it, it.Key == cfg.Current, cfg.VisibleCount, cfg.TotalCount)+border)
 	}
-	// Pad to fill the requested height so the rail's right edge aligns with
-	// the table's bottom edge.
+	// Pad to fill the requested height so the rail's right border runs
+	// continuously from top to bottom of the content area.
 	for len(rows) < height {
 		rows = append(rows, blank)
 	}
