@@ -36,3 +36,11 @@ type View interface {
 type KeyMap interface {
 	KeyMap() []components.KeySpec
 }
+
+// Filterable is an optional interface views implement to expose their current
+// per-view filter string. The shell uses this to sync the bottom command-bar
+// textinput when the user switches views, so each view's filter persists
+// independently across drill-downs and round-trips into logs/describe.
+type Filterable interface {
+	Filter() string
+}

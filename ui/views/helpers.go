@@ -5,7 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/hermanu/klens/ui/layout"
+	"github.com/hermanu/klens/ui/theme"
 )
 
 // FilterMsg is broadcast on every keystroke in the bottom command bar so views
@@ -96,5 +98,49 @@ func matchesFields(filter string, fields ...string) bool {
 		}
 	}
 	return false
+}
+
+// matchHighlight is the lipgloss style applied to filter-matched substrings
+// in table cells and log messages. Bold accent on a darker accent backdrop
+// so a hit is unmistakable on top of the muted body palette.
+var matchHighlight = lipgloss.NewStyle().
+	Foreground(theme.ColorAccent).
+	Background(theme.ColorAccentDim).
+	Bold(true)
+
+// highlightMatch returns text with every case-insensitive occurrence of
+// filter wrapped in matchHighlight. Returns text unchanged when filter is
+// empty (the common path on every cell render). Used by list-view rows()
+// builders and the logs view's formatLogRow to make filter hits visually
+// pop without affecting layout (the rendered width is identical — only the
+// styling changes).
+//
+// Limitation: the input must be plain text. Cells already wrapped in ANSI
+// styling (e.g. NSChip output, StatusPill) shouldn't be passed in — splicing
+// styles into pre-styled text produces fragmented codes that some terminals
+// render as artefacts. Apply this only to the unstyled stringy fields.
+func highlightMatch(text, filter string) string {
+	if filter == "" || text == "" {
+		return text
+	}
+	q := strings.ToLower(strings.TrimSpace(filter))
+	if q == "" {
+		return text
+	}
+	lower := strings.ToLower(text)
+	var sb strings.Builder
+	i := 0
+	for i < len(text) {
+		idx := strings.Index(lower[i:], q)
+		if idx < 0 {
+			sb.WriteString(text[i:])
+			break
+		}
+		abs := i + idx
+		sb.WriteString(text[i:abs])
+		sb.WriteString(matchHighlight.Render(text[abs : abs+len(q)]))
+		i = abs + len(q)
+	}
+	return sb.String()
 }
 

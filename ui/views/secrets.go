@@ -222,6 +222,9 @@ func (v SecretsView) selected() *resources.SecretItem {
 // Title implements views.View.
 func (v SecretsView) Title() string { return "secrets" }
 
+// Filter implements views.Filterable.
+func (v SecretsView) Filter() string { return v.filter }
+
 // Count implements views.View.
 func (v SecretsView) Count() (visible, total int) {
 	return len(v.visibleSecrets()), len(v.secrets)
@@ -382,7 +385,7 @@ func (v SecretsView) rows() []components.Row {
 	for i, s := range items {
 		rows[i] = components.Row{
 			components.NSChip(s.Namespace),
-			s.Name,
+			highlightMatch(s.Name, v.filter),
 			s.Type,
 			fmt.Sprintf("%d", s.Keys),
 			fmtAge(s.Age),

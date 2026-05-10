@@ -138,12 +138,22 @@ func (t Table) View() string {
 		end = len(t.rows)
 	}
 
+	rendered := end - offset
 	for i := offset; i < end; i++ {
 		sel := i == t.selected
 		sb.WriteString(t.renderRow(t.rows[i], sel, colWidths))
 		sb.WriteString("\n")
 	}
-	// Footer: position indicator. Helpful when scrolling through hundreds of
+	// Pad blank rows so the table always consumes its full budgeted height.
+	// Without this, short lists let the focus frame's bottom edge ride up
+	// against the last row, and the position hint below would jump up/down
+	// depending on how many rows are visible. The fixed height keeps both
+	// the frame and the hint glued to a stable position.
+	for i := rendered; i < pageSize; i++ {
+		sb.WriteString("\n")
+	}
+	// Footer: position indicator, always rendered on the same row (just
+	// below the padded body). Helpful when scrolling through hundreds of
 	// rows so the user knows where they are.
 	if len(t.rows) > 0 {
 		hint := fmt.Sprintf("  %d–%d of %d", offset+1, end, len(t.rows))

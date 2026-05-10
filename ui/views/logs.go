@@ -67,14 +67,24 @@ type LogsView struct {
 
 // NewLogsView returns an empty logs view. The root model swaps in a focused
 // pod via WithFocus when the user presses `l` on the pods table.
+//
+// Default since=0 is k9s-style "tail-only" — the impl falls back to
+// fallbackTailLines so quiet pods still show their last N lines on entry.
+// A 30-min default would silently produce empty screens for any pod that
+// hadn't logged recently, which is the failure mode users hit most.
 func NewLogsView() LogsView {
-	return LogsView{follow: true, since: 1800}
+	return LogsView{follow: true, since: 0}
 }
 
 // WithFocus resets the view to a clean buffer for a new pod set. `pods` is the
 // list of pods being tailed; `title` is the chip caption (e.g. "deployment/foo"
 // or "pod/api-7d9-xyz"). For single-pod tails, podSet stays empty so the
 // rendering skips the per-line `[pod-name]` prefix.
+//
+// Logs is the one view that resets its filter on entry: a stale filter
+// applied to a fresh stream almost always hides the line the user actually
+// opened logs to see. Other views preserve their per-view filter across
+// drill-downs because the underlying resource list is stable.
 func (v LogsView) WithFocus(namespace string, pods []string, title string) LogsView {
 	v.namespace = namespace
 	v.title = title
@@ -86,11 +96,13 @@ func (v LogsView) WithFocus(namespace string, pods []string, title string) LogsV
 		}
 	}
 	v.lines = nil
+	v.filter = ""
 	v.offset = -1
 	v.follow = true
-	if v.since == 0 {
-		v.since = 1800
-	}
+	// Don't auto-promote since=0 to a 30-min window any more — that's
+	// what made fresh entries silently empty for quiet pods. since=0
+	// means "use the impl's tail-line cap", which always shows
+	// something.
 	return v
 }
 
@@ -164,6 +176,11 @@ func (v LogsView) Update(msg tea.Msg) (LogsView, tea.Cmd) {
 
 // Title implements views.View.
 func (v LogsView) Title() string { return "logs" }
+
+// Filter implements views.Filterable. Logs filters lines (not rows), but the
+// shell treats Filterable uniformly — the bottom command-bar mirrors this
+// value when LogsView is focused.
+func (v LogsView) Filter() string { return v.filter }
 
 // Count implements views.View — returns the number of buffered lines so the
 // nav rail (and chip strip) can show "showing N lines".
@@ -249,9 +266,12 @@ func (v LogsView) Table(width, height int) string {
 
 	// Flatten every log entry into rendered rows so wrap-aware pagination is
 	// easy. Rows includes the continuation lines from any wrapped message.
+	// Pass the filter through so matching substrings get highlighted in the
+	// message body — the filter already gates v.visibleLines, but the eye
+	// still needs to find the hit inside a long line.
 	rows := make([]string, 0, len(visible))
 	for _, l := range visible {
-		rows = append(rows, strings.Split(formatLogRow(width, l, multi), "\n")...)
+		rows = append(rows, strings.Split(formatLogRow(width, l, multi, v.filter), "\n")...)
 	}
 
 	start := 0
@@ -309,7 +329,7 @@ func (v LogsView) visibleLines() []resources.LogLine {
 	return out
 }
 
-func formatLogRow(width int, l resources.LogLine, multi bool) string {
+func formatLogRow(width int, l resources.LogLine, multi bool, filter string) string {
 	ts := l.Time.Format("15:04:05.000")
 	tsCol := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render(ts)
 	level := l.Level
@@ -362,14 +382,56 @@ func formatLogRow(width int, l resources.LogLine, multi bool) string {
 	indent := strings.Repeat(" ", prefixCols)
 	var sb strings.Builder
 	for i, c := range chunks {
-		if i == 0 {
-			sb.WriteString(header + msgStyle.Render(c))
+		// Pure highlightMatch would leave the unmatched runs as plain
+		// text, breaking the muted body color. mixHighlight applies
+		// msgStyle to the unmatched runs and matchHighlight to the
+		// hits so both colors coexist on the same line.
+		var body string
+		if filter == "" {
+			body = msgStyle.Render(c)
 		} else {
-			sb.WriteString(indent + msgStyle.Render(c))
+			body = mixHighlight(c, filter, msgStyle)
+		}
+		if i == 0 {
+			sb.WriteString(header + body)
+		} else {
+			sb.WriteString(indent + body)
 		}
 		if i < len(chunks)-1 {
 			sb.WriteString("\n")
 		}
+	}
+	return sb.String()
+}
+
+// mixHighlight renders a log-message chunk with two interleaved styles: the
+// muted body color for non-matched text and matchHighlight for filter hits.
+// We can't use highlightMatch directly here because that returns plain text
+// for the unmatched runs, which would clash with the muted msgStyle the rest
+// of the row uses.
+func mixHighlight(text, filter string, body lipgloss.Style) string {
+	if filter == "" {
+		return body.Render(text)
+	}
+	q := strings.ToLower(strings.TrimSpace(filter))
+	if q == "" {
+		return body.Render(text)
+	}
+	lower := strings.ToLower(text)
+	var sb strings.Builder
+	i := 0
+	for i < len(text) {
+		idx := strings.Index(lower[i:], q)
+		if idx < 0 {
+			sb.WriteString(body.Render(text[i:]))
+			break
+		}
+		abs := i + idx
+		if abs > i {
+			sb.WriteString(body.Render(text[i:abs]))
+		}
+		sb.WriteString(matchHighlight.Render(text[abs : abs+len(q)]))
+		i = abs + len(q)
 	}
 	return sb.String()
 }

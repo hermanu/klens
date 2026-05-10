@@ -142,9 +142,10 @@ func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
 			v.table = v.table.MoveBottom()
 			v.logTail = nil
 		case "l":
-			// Switch to the dedicated full-screen logs view AND start the
-			// stream over the last 30 min by default. LogsView lets the user
-			// adjust the lookback range with digit shortcuts.
+			// Switch to the dedicated full-screen logs view and start the
+			// stream tail-only (SinceSeconds=0) so quiet pods still show
+			// their most recent N lines instead of an empty "waiting…"
+			// hint. The user can scope by time via 1-5 in LogsView.
 			if pod := v.SelectedPod(); pod != nil {
 				ns, name := pod.Namespace, pod.Name
 				title := "pod/" + name
@@ -153,7 +154,7 @@ func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
 						return SwitchToLogsMsg{Namespace: ns, Pods: []string{name}, Title: title}
 					},
 					func() tea.Msg {
-						return LogTailRequestMsg{Namespace: ns, Pods: []string{name}, SinceSeconds: 1800}
+						return LogTailRequestMsg{Namespace: ns, Pods: []string{name}, SinceSeconds: 0}
 					},
 				)
 			}
@@ -197,6 +198,10 @@ func (v PodsView) SelectedPod() *resources.PodItem {
 
 // Title implements views.View.
 func (v PodsView) Title() string { return "pods" }
+
+// Filter implements views.Filterable so the shell can mirror the per-view
+// filter into the bottom command-bar input on view switch.
+func (v PodsView) Filter() string { return v.filter }
 
 // Count implements views.View.
 func (v PodsView) Count() (visible, total int) {
@@ -298,15 +303,15 @@ func (v PodsView) rows() []components.Row {
 		spark := components.Sparkline(scaleSeries(s.cpu, scaleCPU), 10, statusDotColor(p.Status))
 		rows[i] = components.Row{
 			components.NSChip(p.Namespace),
-			p.Name,
+			highlightMatch(p.Name, v.filter),
 			p.Ready,
 			components.StatusPill(p.Status),
 			fmt.Sprintf("%d", p.Restarts),
 			cpuCell,
 			memCell,
 			spark,
-			fallbackOr(p.IP),
-			fallbackOr(p.Node),
+			highlightMatch(fallbackOr(p.IP), v.filter),
+			highlightMatch(fallbackOr(p.Node), v.filter),
 			fmtAge(p.Age),
 		}
 	}

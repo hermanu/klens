@@ -103,6 +103,9 @@ func (v NamespacesView) selectedNamespace() *resources.NamespaceItem {
 // Title implements views.View.
 func (v NamespacesView) Title() string { return "namespaces" }
 
+// Filter implements views.Filterable.
+func (v NamespacesView) Filter() string { return v.filter }
+
 // Count implements views.View.
 func (v NamespacesView) Count() (visible, total int) {
 	return len(v.visibleNamespaces()), len(v.namespaces)
@@ -220,7 +223,7 @@ func (v NamespacesView) rows() []components.Row {
 	rows := make([]components.Row, len(items))
 	for i, n := range items {
 		rows[i] = components.Row{
-			n.Name,
+			highlightMatch(n.Name, v.filter),
 			components.StatusPill(n.Status),
 			fmtAge(n.Age),
 		}

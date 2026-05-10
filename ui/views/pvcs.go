@@ -127,6 +127,9 @@ func (v PVCsView) selectedPVC() *resources.PVCItem {
 // Title implements views.View.
 func (v PVCsView) Title() string { return "pvcs" }
 
+// Filter implements views.Filterable.
+func (v PVCsView) Filter() string { return v.filter }
+
 // Count implements views.View.
 func (v PVCsView) Count() (visible, total int) {
 	return len(v.visiblePVCs()), len(v.pvcs)
@@ -228,12 +231,12 @@ func (v PVCsView) rows() []components.Row {
 	for i, p := range pvcs {
 		rows[i] = components.Row{
 			components.NSChip(p.Namespace),
-			p.Name,
+			highlightMatch(p.Name, v.filter),
 			components.StatusPill(p.Status),
-			p.Volume,
+			highlightMatch(p.Volume, v.filter),
 			p.Capacity,
 			p.AccessModes,
-			p.StorageClass,
+			highlightMatch(p.StorageClass, v.filter),
 			fmtAge(p.Age),
 		}
 	}
