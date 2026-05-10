@@ -23,7 +23,7 @@ func sampleRailItems() []layout.NavItem {
 // TestNavRail_RendersOneRowPerItem asserts every item gets its own line and
 // the totals are visible.
 func TestNavRail_RendersOneRowPerItem(t *testing.T) {
-	got := stripANSI(layout.NavRail(22, 8, layout.NavRailConfig{
+	got := stripANSI(layout.NavRail(22, 12, 1, layout.NavRailConfig{
 		Items:        sampleRailItems(),
 		Current:      "pods",
 		VisibleCount: 56,
@@ -44,7 +44,7 @@ func TestNavRail_RendersOneRowPerItem(t *testing.T) {
 // TestNavRail_ActiveCursor asserts the active row gets the `▌` cursor and the
 // V/T format kicks in when filtered.
 func TestNavRail_ActiveCursor(t *testing.T) {
-	got := stripANSI(layout.NavRail(22, 8, layout.NavRailConfig{
+	got := stripANSI(layout.NavRail(22, 12, 1, layout.NavRailConfig{
 		Items:        sampleRailItems(),
 		Current:      "pods",
 		VisibleCount: 4,
@@ -61,7 +61,7 @@ func TestNavRail_ActiveCursor(t *testing.T) {
 // TestNavRail_BracketedMnemonics asserts every mnemonic is wrapped in
 // `[N]` brackets — same convention as the bottom command bar's chips.
 func TestNavRail_BracketedMnemonics(t *testing.T) {
-	got := stripANSI(layout.NavRail(22, 8, layout.NavRailConfig{
+	got := stripANSI(layout.NavRail(22, 12, 1, layout.NavRailConfig{
 		Items:        sampleRailItems(),
 		Current:      "pods",
 		VisibleCount: 56,
