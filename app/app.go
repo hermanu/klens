@@ -174,7 +174,11 @@ func New() (Model, error) {
 	}
 
 	ti := textinput.New()
-	ti.Placeholder = "filter… ns:platform status:Running"
+	// Placeholder is just a verb — we do plain case-insensitive substring
+	// matching against every stringy field of the row (name, namespace,
+	// status, etc.). The previous "ns:platform status:Running" placeholder
+	// implied a query DSL that doesn't exist.
+	ti.Placeholder = "type to filter…"
 	ti.Prompt = ""
 	ti.CharLimit = 96
 
