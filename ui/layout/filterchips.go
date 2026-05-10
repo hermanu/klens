@@ -33,8 +33,11 @@ func FilterChips(width int, chips []FilterChip, count, total int) string {
 		if op == "" {
 			op = ":"
 		}
-		// "key : value ×" — × is the dismiss affordance.
-		text := fmt.Sprintf("%s %s %s ×", c.Key, op, c.Value)
+		// `key : value` — no trailing × glyph. The previous version
+		// implied a click-to-dismiss affordance that didn't exist;
+		// users were trying to click it. Chips are passive context;
+		// dismissal happens at the source (esc / clear filter / etc.).
+		text := fmt.Sprintf("%s %s %s", c.Key, op, c.Value)
 		if c.Strong {
 			parts = append(parts, theme.ChipStrong.Render(text))
 		} else {
