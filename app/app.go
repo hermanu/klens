@@ -36,17 +36,15 @@ const (
 )
 
 // Geometry — the modern shell's pane sizes. No left rail: the table fills
-// the available width minus the right details pane (which itself drops
-// below `minDetailsAt`). Beyond `tableMaxAt`, the content is centered with
-// equal padding on both sides so the table doesn't visually hug the left
-// edge on ultra-wide terminals.
+// every column the terminal gives us, minus the right details pane (which
+// itself drops below `minDetailsAt`). We don't cap or center the content —
+// extra horizontal real estate goes straight to the table.
 const (
 	detailsWidth = 44
 	topBarHeight = 2 // 1 content row + 1 divider
 	cmdBarHeight = 1
 	chipsHeight  = 1
 	minDetailsAt = 120
-	tableMaxAt   = 200 // beyond this width, center the content
 )
 
 // Model is the root Bubble Tea model. It owns all views, the input, the
@@ -725,21 +723,11 @@ func (m Model) View() string {
 		contentH = 1
 	}
 
-	// Cap the content frame at `tableMaxAt` and center it so the table doesn't
-	// hug the left edge on very wide terminals — there's no left rail anymore
-	// to anchor it. Below that cap we use the full width.
-	frameW := m.width
-	leftPad := 0
-	if frameW > tableMaxAt {
-		leftPad = (frameW - tableMaxAt) / 2
-		frameW = tableMaxAt
-	}
-
 	detW := 0
 	if showDetails {
 		detW = detailsWidth
 	}
-	midW := frameW - detW
+	midW := m.width - detW
 
 	chips := layout.FilterChips(midW, v.Chips(), visible, total)
 	tbl := v.Table(midW, contentH)
@@ -750,11 +738,6 @@ func (m Model) View() string {
 		cols = append(cols, v.Details(detW, contentH+chipsHeight))
 	}
 	row := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
-	if leftPad > 0 {
-		// Pad the row with empty space on the left so the whole content
-		// block is centered on ultra-wide terminals.
-		row = lipgloss.NewStyle().PaddingLeft(leftPad).Render(row)
-	}
 
 	// Always advertise `?` in the bottom bar — done at the shell level rather
 	// than per-view so adding a new view never requires remembering to add the
