@@ -35,17 +35,18 @@ const (
 	viewGenericDescribe // dedicated full-screen KV describe for non-pod resources (PVCs, etc.)
 )
 
-// Geometry — the modern shell's pane sizes. The vertical rail sits on the
-// left; the right details pane drops below `minDetailsAt`; both drop below
-// `minRailAt` so very narrow terminals get a table-only mode.
+// Geometry — the modern shell's pane sizes. No left rail: the table fills
+// the available width minus the right details pane (which itself drops
+// below `minDetailsAt`). Beyond `tableMaxAt`, the content is centered with
+// equal padding on both sides so the table doesn't visually hug the left
+// edge on ultra-wide terminals.
 const (
-	navRailWidth = 22
 	detailsWidth = 44
 	topBarHeight = 2 // 1 content row + 1 divider
 	cmdBarHeight = 1
 	chipsHeight  = 1
 	minDetailsAt = 120
-	minRailAt    = 90 // below this width, drop the rail to give the table breathing room
+	tableMaxAt   = 200 // beyond this width, center the content
 )
 
 // Model is the root Bubble Tea model. It owns all views, the input, the
@@ -718,45 +719,42 @@ func (m Model) View() string {
 		m.current != viewLogs &&
 		m.current != viewDescribe &&
 		m.current != viewGenericDescribe
-	showRail := m.width >= minRailAt
 
 	contentH := m.height - topBarHeight - cmdBarHeight - chipsHeight
 	if contentH < 1 {
 		contentH = 1
 	}
 
-	railW := 0
-	if showRail {
-		railW = navRailWidth
+	// Cap the content frame at `tableMaxAt` and center it so the table doesn't
+	// hug the left edge on very wide terminals — there's no left rail anymore
+	// to anchor it. Below that cap we use the full width.
+	frameW := m.width
+	leftPad := 0
+	if frameW > tableMaxAt {
+		leftPad = (frameW - tableMaxAt) / 2
+		frameW = tableMaxAt
 	}
+
 	detW := 0
 	if showDetails {
 		detW = detailsWidth
 	}
-	midW := m.width - railW - detW
+	midW := frameW - detW
 
 	chips := layout.FilterChips(midW, v.Chips(), visible, total)
 	tbl := v.Table(midW, contentH)
 	center := lipgloss.JoinVertical(lipgloss.Left, chips, tbl)
 
-	cols := []string{}
-	if showRail {
-		// `topPad` aligns the rail's first item with the table's NAMESPACE
-		// header — chips eats 1 row above the table, so 1 blank row on the
-		// rail puts `[1]` parallel to the column headers.
-		rail := layout.NavRail(railW, contentH+chipsHeight, chipsHeight, layout.NavRailConfig{
-			Items:        m.navItems(),
-			Current:      v.Title(),
-			VisibleCount: visible,
-			TotalCount:   total,
-		})
-		cols = append(cols, rail)
-	}
-	cols = append(cols, center)
+	cols := []string{center}
 	if showDetails {
 		cols = append(cols, v.Details(detW, contentH+chipsHeight))
 	}
 	row := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
+	if leftPad > 0 {
+		// Pad the row with empty space on the left so the whole content
+		// block is centered on ultra-wide terminals.
+		row = lipgloss.NewStyle().PaddingLeft(leftPad).Render(row)
+	}
 
 	// Always advertise `?` in the bottom bar — done at the shell level rather
 	// than per-view so adding a new view never requires remembering to add the
@@ -890,33 +888,9 @@ func (m Model) currentView() views.View {
 	return m.pods
 }
 
-// navItems returns the nav-strip entries with their current totals.
-// Each item's Count is the resource's total; the active item's filtered/
-// total count is supplied separately via NavStripConfig.VisibleCount.
-func (m Model) navItems() []layout.NavItem {
-	_, pT := m.pods.Count()
-	_, dT := m.deployments.Count()
-	_, sT := m.services_.Count()
-	_, secT := m.secrets.Count()
-	_, cmT := m.configmaps.Count()
-	_, nsT := m.namespaces.Count()
-	_, noT := m.nodes.Count()
-	_, pvT := m.pvcs.Count()
-	return []layout.NavItem{
-		{Key: "pods", Label: "Pods", Mnemonic: "1", Count: pT},
-		{Key: "deployments", Label: "Deployments", Mnemonic: "2", Count: dT},
-		{Key: "services", Label: "Services", Mnemonic: "3", Count: sT},
-		{Key: "secrets", Label: "Secrets", Mnemonic: "4", Count: secT},
-		{Key: "configmaps", Label: "ConfigMaps", Mnemonic: "5", Count: cmT},
-		{Key: "namespaces", Label: "Namespaces", Mnemonic: "6", Count: nsT},
-		{Key: "nodes", Label: "Nodes", Mnemonic: "7", Count: noT},
-		{Key: "pvcs", Label: "PVCs", Mnemonic: "8", Count: pvT},
-	}
-}
-
-// totals returns the legacy aggregate counter set. The new nav strip carries
-// per-resource counts directly, so this is only kept to satisfy the existing
-// TopBarConfig field — the top bar itself no longer renders it.
+// totals returns the legacy aggregate counter set. The top bar's TopBarConfig
+// still has a Totals field for backwards compat; the bar itself no longer
+// renders it (the resource label + V/T count is shown inline instead).
 func (m Model) totals() layout.Totals {
 	_, p := m.pods.Count()
 	_, d := m.deployments.Count()

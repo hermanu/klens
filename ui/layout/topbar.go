@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -68,7 +69,26 @@ func identityStrip(cfg TopBarConfig) string {
 	}
 	parts = append(parts,
 		theme.Faint.Render("·")+" "+nsChip(cfg.Namespace))
+	if r := strings.TrimSpace(cfg.Resource); r != "" {
+		parts = append(parts,
+			theme.Faint.Render("·")+" "+resourceCount(r, cfg.VisibleCount, cfg.TotalCount))
+	}
 	return strings.Join(parts, "  ")
+}
+
+// resourceCount renders the active resource label + V/T count, e.g.
+// `pods 4/56` or `pods 56`. Now that the rail is gone, this is the only
+// place the user sees what view they're on, so it lives in the top bar's
+// identity strip alongside the namespace chip.
+func resourceCount(resource string, visible, total int) string {
+	res := lipgloss.NewStyle().Foreground(theme.ColorFG).Bold(true).Render(resource)
+	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
+	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted)
+	if visible == total {
+		return res + " " + muted.Render(fmt.Sprintf("%d", total))
+	}
+	return res + " " + accent.Render(fmt.Sprintf("%d", visible)) +
+		muted.Render(fmt.Sprintf("/%d", total))
 }
 
 // shortK8sVersion compresses "v1.35.3-eks-bbe087e" to "v1.35.3" — the minor
