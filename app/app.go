@@ -367,6 +367,14 @@ func (m Model) FlashError() string { return m.flashErr }
 func (m Model) PodsFilter() string { return m.pods.Filter() }
 
 func (m Model) Init() tea.Cmd {
+	// No cluster wired (CI / context picker / boot before kubeconfig
+	// resolves) → no fetches. Without this guard the *UpdatedMsg
+	// broadcast trickles into views whose service interfaces are nil,
+	// and a method call on a nil port.PodService panics with
+	// "invalid memory address or nil pointer dereference".
+	if m.client == nil {
+		return nil
+	}
 	// Fire one UpdatedMsg per resource type so every view fetches once and the
 	// nav-rail counts populate immediately (not just for the focused view).
 	return tea.Batch(
