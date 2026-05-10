@@ -13,6 +13,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/hermanu/klens/app"
 	k8sclient "github.com/hermanu/klens/k8s"
+	"github.com/hermanu/klens/port"
 	"k8s.io/klog/v2"
 )
 
@@ -70,15 +71,33 @@ func main() {
 		os.Exit(130)
 	}()
 
-	if m.Client() != nil {
-		w := k8sclient.NewWatcher(m.Client(), m.Namespace(), p, m.Metrics(), m.Logs())
-		w.Start()
-		defer w.Stop()
-		// Hand the watcher's log-streaming entry point to the model so the
-		// pods view can request a tail when the user presses `l` / Enter
-		// without importing client-go from views.
-		m.SetLogTailStarter(w.StartPodLogTails)
+	// Watcher lifecycle is owned by main.go so context switches can swap it
+	// without leaking informers. The restarter closure below captures `w` by
+	// reference; both `defer Stop()` and runtime tear-downs read the latest
+	// pointer, and Watcher.Stop is sync.Once-guarded against double-close.
+	var w *k8sclient.Watcher
+	startWatcher := func(client *k8sclient.Client, ns string, metrics port.MetricsService, logs port.LogService) {
+		nw := k8sclient.NewWatcher(client, ns, p, metrics, logs)
+		nw.Start()
+		w = nw
+		// Re-wire the log-tail entry point so `l` continues to find a live
+		// streamer after the watcher is replaced.
+		m.SetLogTailStarter(nw.StartPodLogTails)
 	}
+	if m.Client() != nil {
+		startWatcher(m.Client(), m.Namespace(), m.Metrics(), m.Logs())
+	}
+	defer func() {
+		if w != nil {
+			w.Stop()
+		}
+	}()
+	m.SetWatcherRestarter(func(client *k8sclient.Client, ns string, metrics port.MetricsService, logs port.LogService) {
+		if w != nil {
+			w.Stop()
+		}
+		startWatcher(client, ns, metrics, logs)
+	})
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

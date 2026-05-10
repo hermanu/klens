@@ -104,7 +104,7 @@ func (v DeploymentsView) Update(msg tea.Msg) (DeploymentsView, tea.Cmd) {
 		return v, tea.Batch(
 			func() tea.Msg { return SwitchToLogsMsg{Namespace: ns, Pods: pods, Title: title} },
 			func() tea.Msg {
-				return LogTailRequestMsg{Namespace: ns, Pods: pods, SinceSeconds: 1800}
+				return LogTailRequestMsg{Namespace: ns, Pods: pods, SinceSeconds: 0}
 			},
 		)
 
@@ -160,6 +160,9 @@ func (v DeploymentsView) Update(msg tea.Msg) (DeploymentsView, tea.Cmd) {
 
 // Title implements views.View.
 func (v DeploymentsView) Title() string { return "deployments" }
+
+// Filter implements views.Filterable.
+func (v DeploymentsView) Filter() string { return v.filter }
 
 // Count implements views.View.
 func (v DeploymentsView) Count() (visible, total int) {
@@ -319,7 +322,7 @@ func (v DeploymentsView) rows() []components.Row {
 	for i, d := range items {
 		rows[i] = components.Row{
 			components.NSChip(d.Namespace),
-			d.Name,
+			highlightMatch(d.Name, v.filter),
 			d.Ready,
 			fmt.Sprintf("%d", d.UpToDate),
 			fmt.Sprintf("%d", d.Available),

@@ -228,6 +228,9 @@ func (v ConfigMapsView) selected() *resources.ConfigMapItem {
 // Title implements views.View.
 func (v ConfigMapsView) Title() string { return "configmaps" }
 
+// Filter implements views.Filterable.
+func (v ConfigMapsView) Filter() string { return v.filter }
+
 // Count implements views.View.
 func (v ConfigMapsView) Count() (visible, total int) {
 	return len(v.visibleConfigMaps()), len(v.configmaps)
@@ -380,7 +383,7 @@ func (v ConfigMapsView) rows() []components.Row {
 	for i, c := range items {
 		rows[i] = components.Row{
 			components.NSChip(c.Namespace),
-			c.Name,
+			highlightMatch(c.Name, v.filter),
 			fmt.Sprintf("%d", c.Keys),
 			fmtAge(c.Age),
 		}

@@ -92,7 +92,7 @@ func (v NodesView) Update(msg tea.Msg) (NodesView, tea.Cmd) {
 		return v, tea.Batch(
 			func() tea.Msg { return SwitchToLogsMsg{Namespace: ns, Pods: pods, Title: title} },
 			func() tea.Msg {
-				return LogTailRequestMsg{Namespace: ns, Pods: pods, SinceSeconds: 1800}
+				return LogTailRequestMsg{Namespace: ns, Pods: pods, SinceSeconds: 0}
 			},
 		)
 
@@ -167,6 +167,9 @@ func (v NodesView) selectedNode() *resources.NodeItem {
 
 // Title implements views.View.
 func (v NodesView) Title() string { return "nodes" }
+
+// Filter implements views.Filterable.
+func (v NodesView) Filter() string { return v.filter }
 
 // Count implements views.View.
 func (v NodesView) Count() (visible, total int) {
@@ -316,9 +319,9 @@ func (v NodesView) rows() []components.Row {
 	rows := make([]components.Row, len(nodes))
 	for i, n := range nodes {
 		rows[i] = components.Row{
-			n.Name,
+			highlightMatch(n.Name, v.filter),
 			components.StatusPill(n.Status),
-			n.Roles,
+			highlightMatch(n.Roles, v.filter),
 			n.Version,
 			fmtAge(n.Age),
 		}

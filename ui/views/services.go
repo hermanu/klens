@@ -98,7 +98,7 @@ func (v ServicesView) Update(msg tea.Msg) (ServicesView, tea.Cmd) {
 		return v, tea.Batch(
 			func() tea.Msg { return SwitchToLogsMsg{Namespace: ns, Pods: pods, Title: title} },
 			func() tea.Msg {
-				return LogTailRequestMsg{Namespace: ns, Pods: pods, SinceSeconds: 1800}
+				return LogTailRequestMsg{Namespace: ns, Pods: pods, SinceSeconds: 0}
 			},
 		)
 
@@ -151,6 +151,9 @@ func (v ServicesView) Update(msg tea.Msg) (ServicesView, tea.Cmd) {
 
 // Title implements views.View.
 func (v ServicesView) Title() string { return "services" }
+
+// Filter implements views.Filterable.
+func (v ServicesView) Filter() string { return v.filter }
 
 // Count implements views.View.
 func (v ServicesView) Count() (visible, total int) {
@@ -277,10 +280,10 @@ func (v ServicesView) rows() []components.Row {
 	for i, s := range items {
 		rows[i] = components.Row{
 			components.NSChip(s.Namespace),
-			s.Name,
+			highlightMatch(s.Name, v.filter),
 			s.Type,
-			s.ClusterIP,
-			s.ExternalIP,
+			highlightMatch(s.ClusterIP, v.filter),
+			highlightMatch(s.ExternalIP, v.filter),
 			s.Ports,
 			fmtAge(s.Age),
 		}

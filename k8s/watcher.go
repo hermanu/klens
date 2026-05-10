@@ -50,6 +50,7 @@ type PulseTickMsg struct {
 type Watcher struct {
 	factory informers.SharedInformerFactory
 	stopCh  chan struct{}
+	stopOnce sync.Once // guards Stop() so a defer + an explicit context-switch teardown don't double-close stopCh.
 	program *tea.Program
 
 	metrics port.MetricsService
@@ -98,10 +99,14 @@ func (w *Watcher) Start() {
 	go w.pulseLoop()
 }
 
-// Stop shuts down all informers and any active log stream.
+// Stop shuts down all informers and any active log stream. Safe to call
+// multiple times — runtime context-switching tears down the current watcher
+// explicitly, while main.go still holds a deferred Stop for clean shutdown.
 func (w *Watcher) Stop() {
-	w.StopPodLogTail()
-	close(w.stopCh)
+	w.stopOnce.Do(func() {
+		w.StopPodLogTail()
+		close(w.stopCh)
+	})
 }
 
 // StartPodLogTails begins streaming logs for one or more pods in `ns` over a

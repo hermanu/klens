@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,6 +19,13 @@ import (
 	"github.com/hermanu/klens/ui/views"
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 )
+
+// flashClearMsg is fired after flashTTL by the tea.Tick scheduled when an
+// inline ex-mode command fails. Update clears m.flashErr on receipt so the
+// red banner doesn't linger past the user's next keystroke.
+type flashClearMsg struct{}
+
+const flashTTL = 1500 * time.Millisecond
 
 type viewKind int
 
@@ -39,12 +47,18 @@ const (
 // every column the terminal gives us, minus the right details pane (which
 // itself drops below `minDetailsAt`). We don't cap or center the content —
 // extra horizontal real estate goes straight to the table.
+//
+// frameH/frameW account for the rounded focus frame drawn around the content
+// area (chips + table + details). The frame eats 1 cell on every edge, so
+// the inner content has 2 fewer rows / 2 fewer columns to work with.
 const (
 	detailsWidth = 44
 	topBarHeight = 2 // 1 content row + 1 divider
 	cmdBarHeight = 1
 	chipsHeight  = 1
 	minDetailsAt = 120
+	frameH       = 2 // top + bottom border rows
+	frameW       = 2 // left + right border columns
 )
 
 // Model is the root Bubble Tea model. It owns all views, the input, the
@@ -75,6 +89,15 @@ type Model struct {
 	palette     components.Palette
 	showPalette bool
 
+	// Inline ex-mode (`:`) — separate from the modal palette so the two UIs
+	// can coexist. The palette is full-overlay browse-by-list; commandMode is
+	// a one-line vim-style prompt with type-ahead suggestions docked above
+	// the bottom command bar.
+	commandMode  bool
+	commandInput textinput.Model
+	commandSel   int    // highlighted suggestion index in commandMode
+	flashErr     string // transient error banner (e.g. "no command 'foo'") cleared by flashClearMsg
+
 	filterInput   textinput.Model
 	filterFocused bool // when true, keystrokes go to filterInput; otherwise to view
 
@@ -92,10 +115,16 @@ type Model struct {
 	// watcher exists) propagates to the live model running in the program.
 	logTailRef *func(ns string, pods []string, sinceSeconds int64)
 
+	// restartWatcherRef is the same pointer trick for the watcher-restart
+	// callback used by runtime context switching. main.go provides a closure
+	// that stops the current watcher and starts a fresh one bound to the new
+	// client + services; the model invokes it through this slot.
+	restartWatcherRef *func(client *k8sclient.Client, ns string, metrics port.MetricsService, logs port.LogService)
+
 	// history is the navigation stack. Drill-downs (Enter on a deployment /
 	// service / namespace; `l` on a pod) push the current view; Esc on a
-	// drilled view pops back. mnemonic 1-8 always clears the stack so we
-	// don't ricochet between unrelated jumps.
+	// drilled view pops back. Palette / ex-mode jumps clear the stack so
+	// we don't ricochet between unrelated jumps.
 	history []viewKind
 
 	width  int
@@ -111,10 +140,21 @@ func (m Model) SetLogTailStarter(f func(ns string, pods []string, sinceSeconds i
 	}
 }
 
+// SetWatcherRestarter wires a callback that stops the current watcher and
+// starts a new one bound to the given client/namespace/services. main.go owns
+// the watcher lifecycle, so the callback closes over its local pointer to the
+// active *Watcher; the model invokes it from the runtime context-picker
+// confirm path.
+func (m Model) SetWatcherRestarter(f func(client *k8sclient.Client, ns string, metrics port.MetricsService, logs port.LogService)) {
+	if m.restartWatcherRef != nil {
+		*m.restartWatcherRef = f
+	}
+}
+
 // persistState writes the current namespace and active resource view to
 // ~/.klens/config.yaml so the next launch reopens to the same scope. Called
-// after every meaningful state change (mnemonic switch, drill-down, palette
-// jump). Best-effort — write errors are swallowed.
+// after every meaningful state change (palette jump, drill-down, ns switch).
+// Best-effort — write errors are swallowed.
 func (m Model) persistState() {
 	cfg, err := config.Load("")
 	if err != nil {
@@ -189,13 +229,21 @@ func New() (Model, error) {
 	ti.Prompt = ""
 	ti.CharLimit = 96
 
+	cmdTi := textinput.New()
+	cmdTi.Placeholder = "command (e.g. dp, ctx, q)"
+	cmdTi.Prompt = ""
+	cmdTi.CharLimit = 64
+
 	var logTail func(ns string, pods []string, sinceSeconds int64)
+	var restart func(client *k8sclient.Client, ns string, metrics port.MetricsService, logs port.LogService)
 	m := Model{
-		client:      client,
-		namespace:   ns,
-		palette:     components.NewPalette(nil),
-		filterInput: ti,
-		logTailRef:  &logTail,
+		client:            client,
+		namespace:         ns,
+		palette:           components.NewPalette(nil),
+		filterInput:       ti,
+		commandInput:      cmdTi,
+		logTailRef:        &logTail,
+		restartWatcherRef: &restart,
 		cluster: ClusterInfo{
 			KlensVer:   "0.3.0",
 			K8sVersion: "—",
@@ -293,8 +341,20 @@ func (m Model) Metrics() port.MetricsService { return m.services.Metrics }
 // Logs returns the optional log service (may be nil if no cluster).
 func (m Model) Logs() port.LogService { return m.services.Logs }
 
-// PaletteVisible reports whether the command palette is open.
+// PaletteVisible reports whether the modal command palette is open.
 func (m Model) PaletteVisible() bool { return m.showPalette }
+
+// CommandModeActive reports whether the inline `:` ex-mode prompt is active.
+// Exposed so tests can verify the ctrl+p / `:` split without poking internals.
+func (m Model) CommandModeActive() bool { return m.commandMode }
+
+// FlashError returns the current transient error banner text (empty when
+// none). Set when an inline-ex command misses; cleared by flashClearMsg.
+func (m Model) FlashError() string { return m.flashErr }
+
+// PodsFilter returns the per-view filter on the pods list. Used by tests to
+// verify filter persistence across drill-downs.
+func (m Model) PodsFilter() string { return m.pods.Filter() }
 
 func (m Model) Init() tea.Cmd {
 	// Fire one UpdatedMsg per resource type so every view fetches once and the
@@ -324,6 +384,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 
+	case flashClearMsg:
+		m.flashErr = ""
+		return m, nil
+
 	case tea.KeyMsg:
 		// Context picker takes over the whole UI at startup if no current
 		// context was loaded — handle navigation/selection here before any
@@ -333,10 +397,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateContextPicker(msg)
 		}
 		// `?` toggles the help overlay from any state where the filter is not
-		// focused and the palette isn't already up. Defining this here (above
-		// updateGlobal) means the toggle works regardless of the current view's
-		// keymap and never collides with view-local keys.
-		if !m.filterFocused && !m.showPalette && msg.String() == "?" {
+		// focused and no other modal/inline mode is up. Defining this here
+		// (above updateGlobal) means the toggle works regardless of the
+		// current view's keymap and never collides with view-local keys.
+		if !m.filterFocused && !m.commandMode && !m.showPalette && msg.String() == "?" {
 			m.showHelp = !m.showHelp
 			return m, nil
 		}
@@ -350,6 +414,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.showPalette {
 			return m.updatePalette(msg)
+		}
+		if m.commandMode {
+			return m.updateCommandMode(msg)
 		}
 		return m.updateGlobal(msg)
 	}
@@ -371,6 +438,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history = append(m.history, m.current)
 		m.logs = m.logs.WithFocus(sw.Namespace, sw.Pods, sw.Title)
 		m.current = viewLogs
+		m = m.syncFilterInput()
 		return m, nil
 	}
 
@@ -380,6 +448,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history = append(m.history, m.current)
 		m.genericDescribe = m.genericDescribe.WithFocus(sw.Title, sw.KVs)
 		m.current = viewGenericDescribe
+		m = m.syncFilterInput()
 		return m, nil
 	}
 
@@ -390,6 +459,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var fetch tea.Cmd
 		m.describe, fetch = m.describe.WithFocus(sw.Namespace, sw.Pod)
 		m.current = viewDescribe
+		m = m.syncFilterInput()
 		return m, fetch
 	}
 
@@ -402,6 +472,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.current = viewPods
 		}
+		m = m.syncFilterInput()
 		return m, nil
 	}
 
@@ -498,29 +569,19 @@ func (m Model) broadcastToViews(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateGlobal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Mnemonic 1-8 — switch resource view (always works, even with the filter
-	// focused, so power users aren't stuck in the input). Mnemonic switches
-	// are intentional jumps, not drill-downs, so we clear the back-history.
-	if mnemonic, ok := mnemonicToView(msg.String()); ok {
-		m.current = mnemonic
-		m.history = nil
-		m.filterFocused = false
-		m.filterInput.Blur()
-		go m.persistState()
-		return m, m.reloadCmd()
-	}
+	// Resource switching is palette/ex-mode only — `:po`, `:dp`, `:svc`,
+	// `:ctx`, `:q` (or `ctrl+p` for the modal). The numeric mnemonics 1-8
+	// were removed because they collided with view-local digit keys
+	// (logs view's 0-5 lookback presets) and the filter input, with no
+	// visible affordance to signal the binding to users.
 
-	// `/` enters filter-focus mode (vim-style). Resets to a clean filter so
-	// "/" never appears as part of the query.
+	// `/` enters filter-focus mode (vim-style). The current view's filter is
+	// preserved so the user can edit it; clearing is one `esc` away.
 	if msg.String() == "/" {
 		m.filterFocused = true
-		m.filterInput.SetValue("")
+		m = m.syncFilterInput()
 		m.filterInput.Focus()
-		next, cmd := m.routeToCurrentView(views.FilterMsg{Query: ""})
-		nm, _ := next.(Model)
-		nm.filterInput = m.filterInput
-		nm.filterFocused = true
-		return nm, cmd
+		return m, nil
 	}
 
 	// `enter` while typing a filter commits it and exits input mode — the
@@ -532,8 +593,8 @@ func (m Model) updateGlobal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// `esc` priorities (in order):
-	//   1. exit filter-focus + clear the filter
-	//   2. pop the navigation history (drill-back)
+	//   1. exit filter-focus + clear the filter on the current view
+	//   2. pop the navigation history (drill-back) — preserves per-view filters
 	//   3. otherwise let the current view handle it
 	if msg.String() == "esc" {
 		if m.filterFocused {
@@ -549,12 +610,14 @@ func (m Model) updateGlobal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			prev := m.history[len(m.history)-1]
 			m.history = m.history[:len(m.history)-1]
 			m.current = prev
-			m.filterInput.SetValue("")
-			next, cmd := m.routeToCurrentView(views.FilterMsg{Query: ""})
-			nm, _ := next.(Model)
-			nm.filterInput = m.filterInput
-			go nm.persistState()
-			return nm, cmd
+			// Per-view filter persistence: each view stores its own filter
+			// in its receiver, so popping back simply re-mirrors that view's
+			// filter into the bottom command bar. We deliberately do NOT
+			// broadcast FilterMsg{""} — that was the regression that wiped
+			// the user's filter on every drill-back from logs/describe.
+			m = m.syncFilterInput()
+			go m.persistState()
+			return m, nil
 		}
 	}
 
@@ -574,13 +637,20 @@ func (m Model) updateGlobal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, inputCmd
 	}
 
-	// Default mode: global keys, then route to view. We bind only `:` to the
-	// palette — `ctrl+k` was conflicting with terminal emulator shortcuts
-	// (Warp uses it for its own palette).
+	// Default mode global keys:
+	//   ctrl+p → modal palette (browse-by-list overlay)
+	//   :      → inline ex-mode (vim-style prompt with type-ahead)
+	//   q      → quit
 	switch msg.String() {
-	case ":":
+	case "ctrl+p":
 		m.showPalette = true
 		m.palette = components.NewPalette(nil)
+		return m, nil
+	case ":":
+		m.commandMode = true
+		m.commandInput.SetValue("")
+		m.commandInput.Focus()
+		m.commandSel = 0
 		return m, nil
 	case "q":
 		return m, tea.Quit
@@ -597,17 +667,138 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := m.palette.Selected()
 		m.showPalette = false
 		if cmd != nil {
-			if cmd.Name == "quit" {
-				return m, tea.Quit
-			}
-			m.current = paletteNameToView(cmd.Name)
-			return m, m.reloadCmd()
+			return m.runCommand(cmd.Name)
 		}
 		return m, nil
 	}
 	var teaCmd tea.Cmd
 	m.palette, teaCmd = m.palette.Update(msg)
 	return m, teaCmd
+}
+
+// runCommand executes one of the shared command-list entries, regardless of
+// whether it was selected from the modal palette (ctrl+p) or the inline
+// ex-mode prompt (`:`). Centralised so both surfaces dispatch identically.
+//
+// Returns the updated model + tea.Cmd for the side-effect (reload, quit,
+// open context picker). Unknown names map to a no-op so callers don't have
+// to validate before calling.
+func (m Model) runCommand(name string) (tea.Model, tea.Cmd) {
+	switch name {
+	case "quit":
+		return m, tea.Quit
+	case "context":
+		return m.openContextPicker(), nil
+	case "pods", "deployments", "services", "secrets", "configmaps", "namespaces", "nodes", "pvcs":
+		m.current = paletteNameToView(name)
+		m.history = nil
+		m = m.syncFilterInput()
+		go m.persistState()
+		return m, m.reloadCmd()
+	}
+	return m, nil
+}
+
+// openContextPicker prepares the runtime context-switch UI: load contexts,
+// pre-select the one we're currently on so the user sees their starting
+// point, and surface the picker. The picker takes over the frame; mid-
+// session esc dismisses without quitting.
+func (m Model) openContextPicker() Model {
+	contexts, _, _ := k8sclient.Contexts()
+	m.availableContexts = contexts
+	m.contextPickerSelected = 0
+	for i, c := range contexts {
+		if c == m.cluster.Context {
+			m.contextPickerSelected = i
+			break
+		}
+	}
+	m.contextPickerErr = ""
+	m.showContextPicker = true
+	return m
+}
+
+// updateCommandMode handles keystrokes while the inline `:` ex-mode is
+// active. Mirrors vim/helix: Tab autocompletes to the longest common prefix,
+// ↑/↓ cycles suggestions, Enter runs the highlighted (or exact-match) entry,
+// Esc cancels. Unknown commands emit a transient flash error.
+func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	cmds := components.DefaultCommands()
+	suggestions := components.FilterCommands(cmds, m.commandInput.Value())
+
+	switch msg.String() {
+	case "esc":
+		m.commandMode = false
+		m.commandInput.SetValue("")
+		m.commandInput.Blur()
+		m.commandSel = 0
+		return m, nil
+
+	case "enter":
+		raw := strings.TrimSpace(m.commandInput.Value())
+		// Exact match always wins, even when the substring filter happened
+		// to surface multiple candidates — this is what makes `:q` quit
+		// without disambiguation prompts.
+		var picked *components.Command
+		if c := components.ExactCommand(cmds, raw); c != nil {
+			picked = c
+		} else if len(suggestions) > 0 && m.commandSel < len(suggestions) {
+			picked = &suggestions[m.commandSel]
+		}
+		m.commandMode = false
+		m.commandInput.Blur()
+		if picked == nil {
+			// Per design call: flash a red banner instead of silently
+			// dismissing, so the user knows the input wasn't a command.
+			m.flashErr = fmt.Sprintf("no command \"%s\"", raw)
+			m.commandInput.SetValue("")
+			return m, tea.Tick(flashTTL, func(time.Time) tea.Msg { return flashClearMsg{} })
+		}
+		m.commandInput.SetValue("")
+		return m.runCommand(picked.Name)
+
+	case "tab", "right":
+		if len(suggestions) > 0 {
+			lcp := components.LongestCommonPrefix(suggestions)
+			if lcp != "" && len(lcp) > len(m.commandInput.Value()) {
+				m.commandInput.SetValue(lcp)
+			}
+		}
+		return m, nil
+
+	case "down", "ctrl+n":
+		if m.commandSel < len(suggestions)-1 {
+			m.commandSel++
+		}
+		return m, nil
+
+	case "up", "ctrl+p":
+		if m.commandSel > 0 {
+			m.commandSel--
+		}
+		return m, nil
+	}
+
+	prev := m.commandInput.Value()
+	var inputCmd tea.Cmd
+	m.commandInput, inputCmd = m.commandInput.Update(msg)
+	if m.commandInput.Value() != prev {
+		m.commandSel = 0 // re-query: the previous selection no longer maps to a stable index
+	}
+	return m, inputCmd
+}
+
+// syncFilterInput mirrors the current view's per-view filter into the bottom
+// command-bar textinput so each view's filter survives drill-downs and
+// round-trips through logs/describe. Sub-views without a filter (Filterable
+// not implemented) clear the input.
+func (m Model) syncFilterInput() Model {
+	if f, ok := m.currentView().(views.Filterable); ok {
+		m.filterInput.SetValue(f.Filter())
+	} else {
+		m.filterInput.SetValue("")
+	}
+	return m
 }
 
 func (m Model) routeToCurrentView(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -718,16 +909,31 @@ func (m Model) View() string {
 		m.current != viewDescribe &&
 		m.current != viewGenericDescribe
 
-	contentH := m.height - topBarHeight - cmdBarHeight - chipsHeight
+	// Inline ex-mode docks a one-line suggestions strip just above the
+	// command bar, so we have to budget that row off the content area or the
+	// table would push the prompt off-screen.
+	extraBottom := 0
+	if m.commandMode {
+		extraBottom = 1
+	}
+	// Inner content height = total height minus everything else, including
+	// the focus frame's two border rows. contentH counts table rows; the
+	// chip strip lives above the table inside the frame, so its row is
+	// already accounted for here.
+	contentH := m.height - topBarHeight - cmdBarHeight - chipsHeight - extraBottom - frameH
 	if contentH < 1 {
 		contentH = 1
 	}
 
+	innerW := m.width - frameW
+	if innerW < 1 {
+		innerW = 1
+	}
 	detW := 0
 	if showDetails {
 		detW = detailsWidth
 	}
-	midW := m.width - detW
+	midW := innerW - detW
 
 	chips := layout.FilterChips(midW, v.Chips(), visible, total)
 	tbl := v.Table(midW, contentH)
@@ -739,14 +945,24 @@ func (m Model) View() string {
 	}
 	row := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
 
-	// Always advertise `?` in the bottom bar — done at the shell level rather
-	// than per-view so adding a new view never requires remembering to add the
-	// help hint, and so the position is stable across views.
-	hints := append([]layout.KeyHint{}, v.KeyHints()...)
-	hints = append(hints, layout.KeyHint{Key: "?", Label: "help"})
-	cmd := layout.CommandBar(m.width, m.commandBarInput(), hints)
+	// Wrap the content in a rounded focus frame. K9s-style accent border
+	// makes the active pane unambiguous and gives the table edges a clean
+	// boundary; we keep the resource title in the top bar rather than
+	// inset on the border (lipgloss has no native inset-label support and
+	// ANSI-aware splicing is fragile across terminal emulators).
+	row = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.ColorBorderFaint).
+		Render(row)
 
-	frame := lipgloss.JoinVertical(lipgloss.Left, top, row, cmd)
+	// Bottom region. In default mode this is just the command bar. In inline
+	// ex-mode (`:` typed), we replace it with a 2-line block: a suggestions
+	// strip with the highlighted match plus the `: <input>` prompt. The flash
+	// banner overrides everything when set, so the user sees feedback before
+	// the next keystroke clears it.
+	bottom := m.renderBottom(v)
+
+	frame := lipgloss.JoinVertical(lipgloss.Left, top, row, bottom)
 
 	if m.showPalette {
 		modal := lipgloss.NewStyle().
@@ -802,11 +1018,25 @@ func helpSpecs(v views.View) []components.KeySpec {
 	return out
 }
 
-// updateContextPicker handles keystrokes while the startup cluster picker is
-// up. ↑/↓ move the selection, ⏎ tries to load the chosen context, esc quits.
+// updateContextPicker handles keystrokes while the cluster picker is up.
+// The picker has two modes:
+//   - Startup (m.client == nil): esc quits, since there's nothing else to
+//     return to. This is what `klens` shows when kubeconfig has no current-
+//     context.
+//   - Runtime (m.client != nil): esc dismisses the picker and returns to
+//     the previous view. Triggered from the palette / `:ctx` ex-mode.
+//
+// Picking the same context the user is already on is a no-op — we don't
+// rebuild services or restart the watcher when nothing actually changed.
 func (m Model) updateContextPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	runtime := m.client != nil
 	switch msg.String() {
 	case "esc":
+		if runtime {
+			m.showContextPicker = false
+			m.contextPickerErr = ""
+			return m, nil
+		}
 		return m, tea.Quit
 	case "j", "down", "ctrl+n":
 		if m.contextPickerSelected < len(m.availableContexts)-1 {
@@ -821,6 +1051,13 @@ func (m Model) updateContextPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		picked := m.availableContexts[m.contextPickerSelected]
+		// Same context → just dismiss. Saves a watcher tear-down + a fresh
+		// list across every resource.
+		if runtime && picked == m.cluster.Context {
+			m.showContextPicker = false
+			m.contextPickerErr = ""
+			return m, nil
+		}
 		cfg, _ := config.Load("")
 		client, err := k8sclient.NewClientForContext(cfg.Kubeconfig, picked)
 		if err != nil {
@@ -830,7 +1067,24 @@ func (m Model) updateContextPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m = m.attachClient(client, cfg)
 		m.showContextPicker = false
 		m.contextPickerErr = ""
-		return m, m.reloadCmd()
+		// Mid-session: tear down the old watcher and start a fresh one so
+		// informers / metrics ticks bind to the new cluster. main.go owns
+		// the watcher pointer; we invoke it through restartWatcherRef.
+		if runtime && m.restartWatcherRef != nil && *m.restartWatcherRef != nil {
+			(*m.restartWatcherRef)(client, m.namespace, m.services.Metrics, m.services.Logs)
+		}
+		// Refetch every resource type so all per-view counts and tables
+		// repopulate against the new cluster, mirroring Init().
+		return m, tea.Batch(
+			func() tea.Msg { return k8sclient.PodsUpdatedMsg{} },
+			func() tea.Msg { return k8sclient.DeploymentsUpdatedMsg{} },
+			func() tea.Msg { return k8sclient.ServicesUpdatedMsg{} },
+			func() tea.Msg { return k8sclient.SecretsUpdatedMsg{} },
+			func() tea.Msg { return k8sclient.ConfigMapsUpdatedMsg{} },
+			func() tea.Msg { return k8sclient.NamespacesUpdatedMsg{} },
+			func() tea.Msg { return k8sclient.NodesUpdatedMsg{} },
+			func() tea.Msg { return k8sclient.PVCsUpdatedMsg{} },
+		)
 	}
 	return m, nil
 }
@@ -839,6 +1093,114 @@ func (m Model) updateContextPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // the "›" + "/" prompt so we don't add it here.
 func (m Model) commandBarInput() string {
 	return m.filterInput.View()
+}
+
+// renderBottom assembles the bottom of the frame in three flavors, in
+// priority order:
+//   - Inline ex-mode (`:`): suggestions strip + `: <input>` prompt (2 rows).
+//   - Flash banner: a 1-row red banner replacing the command bar to surface
+//     transient errors (e.g. unknown command), auto-cleared by flashClearMsg.
+//   - Default: the regular layout.CommandBar with key hints.
+//
+// The 2-row ex-mode geometry is budgeted in View() via extraBottom; flash
+// keeps the original 1-row footprint so it doesn't reflow the table.
+func (m Model) renderBottom(v views.View) string {
+	if m.commandMode {
+		cmds := components.DefaultCommands()
+		suggestions := components.FilterCommands(cmds, m.commandInput.Value())
+		strip := renderSuggestionsStrip(m.width, suggestions, m.commandSel)
+		prompt := renderCommandPrompt(m.width, m.commandInput.View())
+		return lipgloss.JoinVertical(lipgloss.Left, strip, prompt)
+	}
+	if m.flashErr != "" {
+		return renderFlashBanner(m.width, m.flashErr)
+	}
+	hints := append([]layout.KeyHint{}, v.KeyHints()...)
+	hints = append(hints, layout.KeyHint{Key: "?", Label: "help"})
+	return layout.CommandBar(m.width, m.commandBarInput(), hints)
+}
+
+// renderSuggestionsStrip renders the type-ahead candidates docked above the
+// `:` prompt. The selected item is bolded in accent; siblings are dimmed.
+// Long lists silently truncate at the right edge — the modal palette
+// (ctrl+p) is the discoverability surface for the full set.
+func renderSuggestionsStrip(width int, suggestions []components.Command, selected int) string {
+	if width < 1 {
+		width = 1
+	}
+	if len(suggestions) == 0 {
+		empty := theme.Faint.Render("no matches — Tab autocompletes, Esc cancels")
+		return theme.Panel.Width(width).Padding(0, 1).Render(empty)
+	}
+	parts := make([]string, 0, len(suggestions))
+	for i, s := range suggestions {
+		label := s.Name
+		if s.Alias != "" {
+			label = s.Name + " " + theme.Faint.Render(s.Alias)
+		}
+		if i == selected {
+			label = lipgloss.NewStyle().
+				Foreground(theme.ColorAccent).
+				Bold(true).
+				Render("▌ " + s.Name + " " + theme.Faint.Render(s.Alias))
+		} else {
+			label = "  " + theme.Mid.Render(label)
+		}
+		parts = append(parts, label)
+	}
+	line := strings.Join(parts, "  ")
+	// Width-clip at the right so an overflow strip doesn't push the prompt
+	// onto a second visual row.
+	if w := lipgloss.Width(line); w > width-2 {
+		line = lipgloss.NewStyle().MaxWidth(width - 4).Render(line) + theme.Faint.Render(" …")
+	}
+	return theme.Panel.Width(width).Padding(0, 1).Render(line)
+}
+
+// renderCommandPrompt is the inline ex-mode input row — accent ":" prompt,
+// bubbles textinput in the middle, and a couple of hint chips on the right.
+func renderCommandPrompt(width int, inputView string) string {
+	if width < 1 {
+		width = 1
+	}
+	prompt := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render(":") + " "
+	left := prompt + inputView
+
+	hints := []layout.KeyHint{
+		{Key: "↵", Label: "run"},
+		{Key: "⇥", Label: "complete"},
+		{Key: "⎋", Label: "cancel"},
+	}
+	chips := make([]string, 0, len(hints))
+	for _, h := range hints {
+		chips = append(chips, theme.KeyChip.Render(h.Key)+theme.Dim.Render(" "+h.Label))
+	}
+	right := strings.Join(chips, "  ")
+
+	inner := width - 2
+	if inner < 1 {
+		inner = 1
+	}
+	gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	line := left + strings.Repeat(" ", gap) + right
+	return theme.Panel.Width(width).Padding(0, 1).Render(line)
+}
+
+// renderFlashBanner shows a transient red banner for unknown-command errors
+// from the inline ex-mode. flashClearMsg removes it after flashTTL so it
+// doesn't linger past the user's next interaction.
+func renderFlashBanner(width int, err string) string {
+	if width < 1 {
+		width = 1
+	}
+	style := lipgloss.NewStyle().
+		Foreground(theme.ColorError).
+		Bold(true)
+	body := style.Render("✕ "+err) + theme.Faint.Render("  (any key to dismiss)")
+	return theme.Panel.Width(width).Padding(0, 1).Render(body)
 }
 
 // currentView returns the view for the active viewKind as a views.View
@@ -901,28 +1263,6 @@ func paletteNameToView(name string) viewKind {
 		return viewPVCs
 	}
 	return viewPods
-}
-
-func mnemonicToView(s string) (viewKind, bool) {
-	switch s {
-	case "1":
-		return viewPods, true
-	case "2":
-		return viewDeployments, true
-	case "3":
-		return viewServices, true
-	case "4":
-		return viewSecrets, true
-	case "5":
-		return viewConfigMaps, true
-	case "6":
-		return viewNamespaces, true
-	case "7":
-		return viewNodes, true
-	case "8":
-		return viewPVCs, true
-	}
-	return viewPods, false
 }
 
 func fallback(s, def string) string {
