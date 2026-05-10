@@ -79,6 +79,14 @@ type Model struct {
 	filterInput   textinput.Model
 	filterFocused bool // when true, keystrokes go to filterInput; otherwise to view
 
+	// Context picker state — populated when the kubeconfig has no current-
+	// context but multiple contexts are available. The picker takes over the
+	// entire frame until the user picks one or quits with esc.
+	availableContexts     []string
+	showContextPicker     bool
+	contextPickerSelected int
+	contextPickerErr      string
+
 	// logTailRef is a pointer to a shared function slot. Both the local Model
 	// in main.go and the copy held inside tea.NewProgram dereference the same
 	// pointer, so SetLogTailStarter (called after tea.NewProgram, when the
@@ -197,34 +205,53 @@ func New() (Model, error) {
 		},
 	}
 
-	if client != nil {
-		m.services = buildServices(client)
-		m.pods = views.NewPodsView(m.services.Pods, ns)
-		// Owner views (deployments, services, nodes) take a PodService alongside
-		// their primary service so `l` can resolve matching pods for the
-		// multi-pod log fan-out without leaking client-go into the views layer.
-		m.deployments = views.NewDeploymentsView(m.services.Deployments, m.services.Pods, ns)
-		m.services_ = views.NewServicesView(m.services.Svcs, m.services.Pods, ns)
-		m.secrets = views.NewSecretsView(m.services.Secrets, ns)
-		m.configmaps = views.NewConfigMapsView(m.services.ConfigMaps, ns)
-		m.namespaces = views.NewNamespacesView(m.services.Namespaces)
-		m.nodes = views.NewNodesView(m.services.Nodes, m.services.Pods)
-		m.pvcs = views.NewPVCsView(m.services.PVCs, ns)
-		m.logs = views.NewLogsView()
-		m.describe = views.NewDescribeView(m.services.Pods)
-		m.genericDescribe = views.NewGenericDescribeView()
+	if client == nil {
+		// No live cluster — surface a context picker so the user can pick
+		// one of the available kubeconfig contexts instead of being stuck on
+		// a blank "no cluster" screen. Best-effort: if the kubeconfig itself
+		// failed to load, the contexts list comes back empty and the picker
+		// renders a "no contexts found" hint.
+		if contexts, _, err := k8sclient.Contexts(); err == nil && len(contexts) > 0 {
+			m.availableContexts = contexts
+			m.showContextPicker = true
+		}
+		return m, nil
+	}
 
-		// Best-effort populate top-bar context from the cluster.
-		if v, err := client.Kube.Discovery().ServerVersion(); err == nil {
-			m.cluster.K8sVersion = v.GitVersion
-		}
-		// Cluster / user / context are extracted from the loaded kubeconfig
-		// when possible; on failure leave the placeholders.
-		if info, err := k8sclient.CurrentContextInfo(); err == nil {
-			m.cluster.Context = info.Context
-			m.cluster.Cluster = info.Cluster
-			m.cluster.User = info.User
-		}
+	m = m.attachClient(client, cfg)
+	return m, nil
+}
+
+// attachClient builds every per-cluster view + service field from a live
+// client. Pulled out of New() so the context picker can re-run it after a
+// startup-time switch without duplicating wiring.
+func (m Model) attachClient(client *k8sclient.Client, cfg config.Config) Model {
+	m.client = client
+	ns := m.namespace
+
+	m.services = buildServices(client)
+	m.pods = views.NewPodsView(m.services.Pods, ns)
+	m.deployments = views.NewDeploymentsView(m.services.Deployments, m.services.Pods, ns)
+	m.services_ = views.NewServicesView(m.services.Svcs, m.services.Pods, ns)
+	m.secrets = views.NewSecretsView(m.services.Secrets, ns)
+	m.configmaps = views.NewConfigMapsView(m.services.ConfigMaps, ns)
+	m.namespaces = views.NewNamespacesView(m.services.Namespaces)
+	m.nodes = views.NewNodesView(m.services.Nodes, m.services.Pods)
+	m.pvcs = views.NewPVCsView(m.services.PVCs, ns)
+	m.logs = views.NewLogsView()
+	m.describe = views.NewDescribeView(m.services.Pods)
+	m.genericDescribe = views.NewGenericDescribeView()
+
+	// Best-effort populate top-bar context from the cluster.
+	if v, err := client.Kube.Discovery().ServerVersion(); err == nil {
+		m.cluster.K8sVersion = v.GitVersion
+	}
+	// Cluster / user / context are extracted from the loaded kubeconfig
+	// when possible; on failure leave the placeholders.
+	if info, err := k8sclient.CurrentContextInfo(); err == nil {
+		m.cluster.Context = info.Context
+		m.cluster.Cluster = info.Cluster
+		m.cluster.User = info.User
 	}
 
 	// Restore the last-opened view from config so the user re-enters
@@ -233,7 +260,7 @@ func New() (Model, error) {
 		m.current = v
 	}
 
-	return m, nil
+	return m
 }
 
 func buildServices(client *k8sclient.Client) port.Services {
@@ -299,6 +326,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Context picker takes over the whole UI at startup if no current
+		// context was loaded — handle navigation/selection here before any
+		// view-level routing so keystrokes can't slip through to a view that
+		// doesn't exist yet.
+		if m.showContextPicker {
+			return m.updateContextPicker(msg)
+		}
 		// `?` toggles the help overlay from any state where the filter is not
 		// focused and the palette isn't already up. Defining this here (above
 		// updateGlobal) means the toggle works regardless of the current view's
@@ -654,6 +688,12 @@ func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return ""
 	}
+	// Startup cluster picker takes over the whole frame — no client to drive
+	// any view yet, so we render it on a blank canvas instead of the shell.
+	if m.showContextPicker {
+		return components.ContextPicker(m.width, m.height,
+			m.availableContexts, m.contextPickerSelected, m.contextPickerErr)
+	}
 	v := m.currentView()
 
 	visible, total := v.Count()
@@ -779,6 +819,39 @@ func helpSpecs(v views.View) []components.KeySpec {
 		out = append(out, components.KeySpec{Key: h.Key, Label: h.Label})
 	}
 	return out
+}
+
+// updateContextPicker handles keystrokes while the startup cluster picker is
+// up. ↑/↓ move the selection, ⏎ tries to load the chosen context, esc quits.
+func (m Model) updateContextPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		return m, tea.Quit
+	case "j", "down", "ctrl+n":
+		if m.contextPickerSelected < len(m.availableContexts)-1 {
+			m.contextPickerSelected++
+		}
+	case "k", "up", "ctrl+p":
+		if m.contextPickerSelected > 0 {
+			m.contextPickerSelected--
+		}
+	case "enter":
+		if len(m.availableContexts) == 0 {
+			return m, tea.Quit
+		}
+		picked := m.availableContexts[m.contextPickerSelected]
+		cfg, _ := config.Load("")
+		client, err := k8sclient.NewClientForContext(cfg.Kubeconfig, picked)
+		if err != nil {
+			m.contextPickerErr = err.Error()
+			return m, nil
+		}
+		m = m.attachClient(client, cfg)
+		m.showContextPicker = false
+		m.contextPickerErr = ""
+		return m, m.reloadCmd()
+	}
+	return m, nil
 }
 
 // commandBarInput returns the raw textinput.View() — layout.CommandBar prepends
