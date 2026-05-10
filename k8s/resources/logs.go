@@ -28,10 +28,13 @@ func NewLogSvc(kube kubernetes.Interface) LogSvc {
 // default 64 KiB Scanner limit.
 const scanBufMax = 1024 * 1024
 
-// fallbackTailLines caps the backlog when no since-window is supplied. 2000
-// is plenty of context for "show me everything you have buffered" while
-// staying well under the typical kubelet log retention size.
-const fallbackTailLines int64 = 2000
+// fallbackTailLines caps the backlog when no since-window is supplied —
+// i.e., the default-on-entry path. 50 matches the user's read window
+// (one screenful-ish) so quiet pods still show recent context without
+// dumping thousands of lines they have to scroll past. The in-memory
+// buffer (logBufferMax) accumulates new lines as the live stream
+// arrives, capped at the view's scrollback budget.
+const fallbackTailLines int64 = 50
 
 // StreamPodLogs streams container logs to `out`. `sinceSeconds` is the
 // lookback window — pass 1800 for the last 30 min. Pass 0 for "no since",

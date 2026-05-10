@@ -11,9 +11,13 @@ import (
 	"github.com/hermanu/klens/ui/theme"
 )
 
-// logBufferMax caps the in-memory log tail. Older lines roll off the front so
-// memory stays bounded even on chatty pods.
-const logBufferMax = 5000
+// logBufferMax caps the in-memory log tail. The view shows the most
+// recent ~50 lines on entry (see resources.fallbackTailLines) and lets
+// the user scroll back through up to logBufferMax-1 older lines before
+// they roll off the front. 200 is roughly four screens of scrollback —
+// enough to read context without keeping a chatty pod's noise pinned
+// in memory forever.
+const logBufferMax = 200
 
 // SwitchToLogsMsg asks the root model to focus the dedicated full-screen logs
 // view. List views (pods, deployments, services, nodes) emit this on `l`
@@ -63,6 +67,10 @@ type LogsView struct {
 	follow    bool  // auto-scroll to newest when true
 	since     int64 // seconds of lookback (0 = no since); also drives the chip
 	filter    string
+	// wrap toggles soft-wrap of long messages. Off by default: long
+	// lines clip at the right edge, which keeps row alignment stable
+	// for grep-eyeballing structured logs. `w` flips it.
+	wrap bool
 }
 
 // NewLogsView returns an empty logs view. The root model swaps in a focused
@@ -151,6 +159,12 @@ func (v LogsView) Update(msg tea.Msg) (LogsView, tea.Cmd) {
 		case "c":
 			v.lines = nil
 			return v, nil
+		case "w":
+			// Toggle wrap. Off by default keeps the timestamp+level
+			// columns aligned so the user's eye can scan; on is for
+			// reading multi-line stack traces or long JSON blobs.
+			v.wrap = !v.wrap
+			return v, nil
 		case "esc":
 			return v, func() tea.Msg { return BackToPodsMsg{} }
 		}
@@ -204,8 +218,11 @@ func (v LogsView) Chips() []layout.FilterChip {
 			value = "pod/" + p
 		}
 	}
+	// Namespace is shown in the top bar already; the chip strip carries
+	// only logs-specific context (the focused workload + tail state +
+	// optional /filter), so the user's eye doesn't read the same value
+	// twice on the same screen.
 	chips := []layout.FilterChip{
-		{Key: "ns", Value: fallbackOr(v.namespace)},
 		{Key: scopeKey, Value: fallbackOr(value)},
 	}
 	if v.follow {
@@ -232,12 +249,17 @@ func (v LogsView) activePods() []string {
 	return out
 }
 
-// KeyHints implements views.View.
+// KeyHints implements views.View. The wrap label flips so the user can
+// see the toggle's current state without opening the help overlay.
 func (v LogsView) KeyHints() []layout.KeyHint {
+	wrapLabel := "wrap"
+	if v.wrap {
+		wrapLabel = "no-wrap"
+	}
 	return []layout.KeyHint{
 		{Key: "j/k", Label: "scroll"},
 		{Key: "G", Label: "tail"},
-		{Key: "c", Label: "clear"},
+		{Key: "w", Label: wrapLabel},
 		{Key: "/", Label: "filter"},
 		{Key: "esc", Label: "back"},
 	}
@@ -271,7 +293,7 @@ func (v LogsView) Table(width, height int) string {
 	// still needs to find the hit inside a long line.
 	rows := make([]string, 0, len(visible))
 	for _, l := range visible {
-		rows = append(rows, strings.Split(formatLogRow(width, l, multi, v.filter), "\n")...)
+		rows = append(rows, strings.Split(formatLogRow(width, l, multi, v.filter, v.wrap), "\n")...)
 	}
 
 	start := 0
@@ -329,7 +351,7 @@ func (v LogsView) visibleLines() []resources.LogLine {
 	return out
 }
 
-func formatLogRow(width int, l resources.LogLine, multi bool, filter string) string {
+func formatLogRow(width int, l resources.LogLine, multi bool, filter string, wrap bool) string {
 	ts := l.Time.Format("15:04:05.000")
 	tsCol := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render(ts)
 	level := l.Level
@@ -373,7 +395,21 @@ func formatLogRow(width int, l resources.LogLine, multi bool, filter string) str
 	}
 
 	msgStyle := lipgloss.NewStyle().Foreground(theme.ColorFG2)
-	chunks := wrapMessage(l.Message, msgWidth)
+	// In wrap mode the message soft-wraps onto continuation rows so
+	// long stack traces stay fully readable. In no-wrap mode (default)
+	// we collapse to a single visual row clipped at msgWidth — keeps
+	// timestamp+level columns aligned for grep-style scanning. The
+	// horizontal `…` ellipsis tells the reader the line was clipped.
+	var chunks []string
+	if wrap {
+		chunks = wrapMessage(l.Message, msgWidth)
+	} else {
+		single := strings.ReplaceAll(l.Message, "\n", " ")
+		if lipgloss.Width(single) > msgWidth {
+			single = clipDisplay(single, msgWidth-1) + "…"
+		}
+		chunks = []string{single}
+	}
 	if len(chunks) == 0 {
 		chunks = []string{""}
 	}
@@ -434,6 +470,26 @@ func mixHighlight(text, filter string, body lipgloss.Style) string {
 		i = abs + len(q)
 	}
 	return sb.String()
+}
+
+// clipDisplay returns the longest prefix of s whose display width fits in
+// `width` cells. Used by formatLogRow's no-wrap path to truncate long
+// messages without splitting wide runes mid-character.
+func clipDisplay(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	var b strings.Builder
+	cells := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if cells+rw > width {
+			break
+		}
+		b.WriteRune(r)
+		cells += rw
+	}
+	return b.String()
 }
 
 // wrapMessage splits `s` into chunks ≤ width display cells. The split is on
