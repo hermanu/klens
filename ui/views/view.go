@@ -44,3 +44,15 @@ type KeyMap interface {
 type Filterable interface {
 	Filter() string
 }
+
+// Capturing is an optional interface a view implements to claim exclusive
+// ownership of every KeyMsg while CapturesKeys() returns true. The shell
+// skips its own global shortcuts (`:`, `?`, `ctrl+p`, `/`) and routes
+// straight to the view — needed for modal sub-states like the form's
+// edit/insert modes where stray app shortcuts would steal keystrokes that
+// belong to the inner editor.
+//
+// ctrl+c is still handled globally as the emergency exit.
+type Capturing interface {
+	CapturesKeys() bool
+}

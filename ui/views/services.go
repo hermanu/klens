@@ -142,7 +142,8 @@ func (v ServicesView) Update(msg tea.Msg) (ServicesView, tea.Cmd) {
 			items := v.visibleServices()
 			if idx < len(items) {
 				name := items[idx].Name
-				return v, func() tea.Msg { return DrillToPodsMsg{Filter: name} }
+				label := "service/" + name
+				return v, func() tea.Msg { return DrillToPodsMsg{Filter: name, Label: label} }
 			}
 		}
 	}

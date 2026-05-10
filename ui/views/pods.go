@@ -57,7 +57,14 @@ type PodsView struct {
 	logTail   []resources.LogLine
 	table     components.Table
 	filter    string
-	err       error
+	// scope is a programmatic narrowing applied on top of filter — set
+	// by drill-downs (Enter on a deployment / service / node row) so the
+	// pods view shows only that workload's pods without consuming the
+	// user's filter input. Cleared whenever the user navigates to pods
+	// via a non-drill path (palette, mnemonic, namespace switch).
+	scope      string
+	scopeLabel string // chip label, e.g. "deployment/file-to-md"
+	err        error
 }
 
 func NewPodsView(svc port.PodService, namespace string) PodsView {
@@ -209,15 +216,37 @@ func (v PodsView) Count() (visible, total int) {
 }
 
 // Chips implements views.View. The namespace is shown prominently in the top
-// bar already, so we don't repeat it here — only user-set chips (text filter)
-// or non-default state goes in the strip.
+// bar already, so we don't repeat it here — only user-set chips (text filter,
+// drill scope) go in the strip. The scope chip uses a non-`/` key so the
+// reader can tell at a glance that the narrowing is programmatic, not typed.
 func (v PodsView) Chips() []layout.FilterChip {
 	chips := []layout.FilterChip{}
+	if v.scope != "" {
+		label := v.scopeLabel
+		if label == "" {
+			label = v.scope
+		}
+		chips = append(chips, layout.FilterChip{Key: "scope", Value: label, Strong: true})
+	}
 	if v.filter != "" {
 		chips = append(chips, layout.FilterChip{Key: "/", Value: v.filter, Strong: true})
 	}
 	return chips
 }
+
+// WithScope narrows the pod list programmatically (set by drill-downs from
+// deployments / services / nodes). The user's filter input is left alone —
+// scope and filter AND together when computing visible rows. Pass ""+"" to
+// clear the scope (e.g. when re-entering pods via the palette).
+func (v PodsView) WithScope(scope, label string) PodsView {
+	v.scope = scope
+	v.scopeLabel = label
+	return v
+}
+
+// Scope reports the active drill scope (empty when none). Exposed so the
+// shell can clear it on non-drill entry without poking internals.
+func (v PodsView) Scope() string { return v.scope }
 
 // KeyHints implements views.View — only the keys that actually do something
 // today. shell / edit / port-fwd are deliberately omitted until they're
@@ -270,18 +299,23 @@ func (v PodsView) Details(width, height int) string {
 	})
 }
 
-// visiblePods returns the pods slice after applying v.filter through the
-// shared matchesFields helper. Fields included: name, namespace, status,
+// visiblePods returns the pods slice after applying v.scope (programmatic
+// drill narrowing) AND v.filter (user-typed query). Both use the shared
+// matchesFields substring helper. Fields included: name, namespace, status,
 // ready, node, IP — every stringy column the user sees in the table.
 func (v PodsView) visiblePods() []resources.PodItem {
-	if v.filter == "" {
+	if v.scope == "" && v.filter == "" {
 		return v.pods
 	}
 	out := make([]resources.PodItem, 0, len(v.pods))
 	for _, p := range v.pods {
-		if matchesFields(v.filter, p.Name, p.Namespace, p.Status, p.Ready, p.Node, p.IP) {
-			out = append(out, p)
+		if v.scope != "" && !matchesFields(v.scope, p.Name, p.Namespace, p.Node) {
+			continue
 		}
+		if v.filter != "" && !matchesFields(v.filter, p.Name, p.Namespace, p.Status, p.Ready, p.Node, p.IP) {
+			continue
+		}
+		out = append(out, p)
 	}
 	return out
 }

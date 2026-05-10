@@ -137,7 +137,8 @@ func (v NodesView) Update(msg tea.Msg) (NodesView, tea.Cmd) {
 			items := v.visibleNodes()
 			if idx < len(items) {
 				name := items[idx].Name
-				return v, func() tea.Msg { return DrillToPodsMsg{Filter: name} }
+				label := "node/" + name
+				return v, func() tea.Msg { return DrillToPodsMsg{Filter: name, Label: label} }
 			}
 		}
 	}

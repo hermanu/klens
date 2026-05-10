@@ -151,7 +151,8 @@ func (v DeploymentsView) Update(msg tea.Msg) (DeploymentsView, tea.Cmd) {
 			items := v.visibleDeployments()
 			if idx < len(items) {
 				name := items[idx].Name
-				return v, func() tea.Msg { return DrillToPodsMsg{Filter: name} }
+				label := "deployment/" + name
+				return v, func() tea.Msg { return DrillToPodsMsg{Filter: name, Label: label} }
 			}
 		}
 	}

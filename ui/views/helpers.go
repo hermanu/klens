@@ -61,9 +61,15 @@ type BackMsg struct{}
 
 // DrillToPodsMsg is emitted by a non-pod list view when the user presses Enter
 // on a row — k9s-style drill-down. The root model switches to PodsView and
-// applies the supplied filter so the user sees the related workload pods.
+// applies the supplied substring as a programmatic *scope* (not a user
+// filter), narrowing the visible pods without consuming the bottom command
+// bar's filter input.
+//
+// Label is the human-friendly chip caption (e.g. "deployment/file-to-md");
+// when empty, the chip falls back to the raw Filter string.
 type DrillToPodsMsg struct {
 	Filter string
+	Label  string
 }
 
 func fmtAge(d time.Duration) string {
