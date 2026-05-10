@@ -25,7 +25,11 @@ const logTailLen = 50
 
 var podCols = []components.Column{
 	{Header: "NAMESPACE", Width: 14},
-	{Header: "NAME", Width: 36},
+	// NAME is Flex so any leftover horizontal width on wide terminals goes to
+	// it — pod names are routinely long enough to truncate at 36, and there's
+	// no point leaving a blank band on the right of the table while names get
+	// chopped.
+	{Header: "NAME", Width: 36, Flex: true},
 	{Header: "READY", Width: 6, Align: components.AlignRight},
 	{Header: "STATUS", Width: 18},
 	{Header: "RST", Width: 4, Align: components.AlignRight},

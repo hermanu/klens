@@ -8,11 +8,15 @@ import (
 	"github.com/hermanu/klens/ui/theme"
 )
 
-// Column defines a table column's header and fixed display width.
+// Column defines a table column's header and display width. Width is the
+// minimum/baseline; Flex columns absorb any extra horizontal slack the table
+// gets so the content stretches to the table's full assigned width instead
+// of leaving an empty band on the right.
 type Column struct {
 	Header string
 	Width  int
 	Align  Align // default Left
+	Flex   bool  // when true, the column grows to absorb leftover width
 }
 
 // Align is the cell alignment mode.
@@ -93,12 +97,16 @@ func (t Table) MoveBottom() Table {
 func (t Table) View() string {
 	var sb strings.Builder
 
-	// Header row
+	colWidths := t.resolvedWidths()
+
+	// Header row — left-padded by 2 cols so the headers align with row cells
+	// (rows reserve col 0 for the `▌` cursor and col 1 for the `›` glyph).
+	sb.WriteString("  ")
 	for i, c := range t.cols {
 		if i > 0 {
 			sb.WriteString("  ")
 		}
-		s := theme.ColHeader.Width(c.Width)
+		s := theme.ColHeader.Width(colWidths[i])
 		if c.Align == AlignRight {
 			s = s.Align(lipgloss.Right)
 		}
@@ -132,7 +140,7 @@ func (t Table) View() string {
 
 	for i := offset; i < end; i++ {
 		sel := i == t.selected
-		sb.WriteString(t.renderRow(t.rows[i], sel))
+		sb.WriteString(t.renderRow(t.rows[i], sel, colWidths))
 		sb.WriteString("\n")
 	}
 	// Footer: position indicator. Helpful when scrolling through hundreds of
@@ -142,6 +150,48 @@ func (t Table) View() string {
 		sb.WriteString(lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(hint))
 	}
 	return sb.String()
+}
+
+// resolvedWidths returns one width per column after distributing any leftover
+// table width across the Flex columns. Without this, fixed-width columns
+// summed to ~140 cols leave a trailing gap on terminals 200+ cols wide; with
+// it, the flex column (typically NAME) absorbs the slack and the table fills
+// edge to edge.
+func (t Table) resolvedWidths() []int {
+	out := make([]int, len(t.cols))
+	totalFixed := 0
+	flexCount := 0
+	for i, c := range t.cols {
+		out[i] = c.Width
+		totalFixed += c.Width
+		if c.Flex {
+			flexCount++
+		}
+	}
+	if flexCount == 0 || t.width <= 0 {
+		return out
+	}
+	// Account for the cursor column (2 cols) + 2-col separators between
+	// columns, which the row renderer adds on top of the column widths.
+	const cursorCols = 2
+	separators := (len(t.cols) - 1) * 2
+	consumed := cursorCols + separators + totalFixed
+	slack := t.width - consumed - 1 // -1 for a tiny right-edge breathing room
+	if slack <= 0 {
+		return out
+	}
+	share := slack / flexCount
+	rem := slack - share*flexCount
+	for i, c := range t.cols {
+		if c.Flex {
+			out[i] += share
+			if rem > 0 {
+				out[i]++
+				rem--
+			}
+		}
+	}
+	return out
 }
 
 // truncateCell clamps a cell to at most maxWidth display columns. ANSI escape
@@ -200,7 +250,7 @@ func truncateCell(s string, maxWidth int, hasANSI bool) string {
 // renderRow renders one row. The selected row gets an accent left bar (`▌`),
 // a `›` cursor on the first cell, and a bold accent foreground on every
 // plain-text cell — three independent visual cues so the focus is obvious.
-func (t Table) renderRow(row Row, sel bool) string {
+func (t Table) renderRow(row Row, sel bool, colWidths []int) string {
 	var sb strings.Builder
 
 	// Left bar (1 col): accent for selected, transparent otherwise.
@@ -227,7 +277,7 @@ func (t Table) renderRow(row Row, sel bool) string {
 			val = "  " + val
 		}
 
-		w := c.Width
+		w := colWidths[j]
 		// First column absorbs the cursor prefix without changing column width.
 		// Lipgloss handles ANSI when measuring width, so we don't subtract.
 

@@ -27,7 +27,7 @@ const (
 // table index, not by reading row[0], to stay agnostic of the rendered NSChip.
 var secretCols = []components.Column{
 	{Header: "NAMESPACE", Width: 14},
-	{Header: "NAME", Width: 36},
+	{Header: "NAME", Width: 36, Flex: true},
 	{Header: "TYPE", Width: 28},
 	{Header: "KEYS", Width: 6, Align: components.AlignRight},
 	{Header: "AGE", Width: 6, Align: components.AlignRight},

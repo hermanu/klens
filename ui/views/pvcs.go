@@ -14,7 +14,7 @@ import (
 
 var pvcCols = []components.Column{
 	{Header: "NAMESPACE", Width: 14},
-	{Header: "NAME", Width: 32},
+	{Header: "NAME", Width: 32, Flex: true},
 	{Header: "STATUS", Width: 12},
 	{Header: "VOLUME", Width: 24},
 	{Header: "CAPACITY", Width: 10, Align: components.AlignRight},

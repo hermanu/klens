@@ -16,7 +16,7 @@ import (
 
 var deploymentCols = []components.Column{
 	{Header: "NAMESPACE", Width: 14},
-	{Header: "NAME", Width: 36},
+	{Header: "NAME", Width: 36, Flex: true},
 	{Header: "READY", Width: 8, Align: components.AlignRight},
 	{Header: "UP-TO-DATE", Width: 12, Align: components.AlignRight},
 	{Header: "AVAILABLE", Width: 10, Align: components.AlignRight},
