@@ -15,33 +15,43 @@ import (
 // filtered (V bold accent, /T regular accent); inactive items show their
 // total in muted.
 //
-//	▌[1] pods         4/56
-//	 [2] deployments    22
-//	 [3] services       23
+//	(blank — aligns with the chips strip on the right)
+//	▌[1] pods         4/56     ← parallel to NAMESPACE table header
+//	 [2] deployments    22     ← parallel to the table divider row
+//	 [3] services       23     ← parallel to the first data row
 //	 [4] secrets        14
 //	 ...
 //
-// The vertical rail uses the design's left-rail anchor — once the user gets
-// past 80 cols of horizontal real estate, putting the nav on the left is
-// clearer than competing for the top band, and it leaves the entire top row
-// for identity + brand. Drops below `minRailAt` cols so narrow terminals get
-// the full table width.
-func NavRail(width, height int, cfg NavRailConfig) string {
+// `topPad` blank rows are prepended so the rail's first item lines up with
+// the table's NAMESPACE header instead of with the chips strip above it —
+// the user reads `[1] pods` as the keypress equivalent of "the row of pods"
+// and expects it visually parallel to the column headers.
+//
+// Drops below `minRailAt` cols (decided by the shell) so narrow terminals
+// get the full table width.
+func NavRail(width, height, topPad int, cfg NavRailConfig) string {
 	if width < 8 {
 		width = 8
 	}
 	if height < 1 {
 		height = 1
 	}
+	if topPad < 0 {
+		topPad = 0
+	}
 
-	rows := make([]string, 0, len(cfg.Items)+1)
+	rows := make([]string, 0, topPad+len(cfg.Items)+1)
+	blank := lipgloss.NewStyle().Width(width).Render("")
+	for i := 0; i < topPad; i++ {
+		rows = append(rows, blank)
+	}
 	for _, it := range cfg.Items {
 		rows = append(rows, navRailRow(width, it, it.Key == cfg.Current, cfg.VisibleCount, cfg.TotalCount))
 	}
 	// Pad to fill the requested height so the rail's right edge aligns with
 	// the table's bottom edge.
 	for len(rows) < height {
-		rows = append(rows, lipgloss.NewStyle().Width(width).Render(""))
+		rows = append(rows, blank)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }

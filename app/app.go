@@ -701,7 +701,10 @@ func (m Model) View() string {
 
 	cols := []string{}
 	if showRail {
-		rail := layout.NavRail(railW, contentH+chipsHeight, layout.NavRailConfig{
+		// `topPad` aligns the rail's first item with the table's NAMESPACE
+		// header — chips eats 1 row above the table, so 1 blank row on the
+		// rail puts `[1]` parallel to the column headers.
+		rail := layout.NavRail(railW, contentH+chipsHeight, chipsHeight, layout.NavRailConfig{
 			Items:        m.navItems(),
 			Current:      v.Title(),
 			VisibleCount: visible,
