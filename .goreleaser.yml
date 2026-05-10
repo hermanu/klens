@@ -33,6 +33,34 @@ archives:
       - README.md
       - LICENSE
 
+nfpms:
+  - package_name: klens
+    homepage: https://github.com/hermanu/klens
+    maintainer: "manu <manuguionbajo@gmail.com>"
+    description: |
+      Keyboard-driven Kubernetes TUI inspired by k9s.
+      Inline editing of secrets and configmaps, with a modern
+      composed shell layout featuring filter chips, a details pane,
+      and full-screen log and describe views.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+
+homebrew_casks:
+  - name: klens
+    repository:
+      owner: hermanu
+      name: homebrew-klens
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: hermanu
+      email: manuguionbajo@gmail.com
+    homepage: "https://github.com/hermanu/klens"
+    description: "Keyboard-driven Kubernetes TUI with inline secret editing and a modern shell layout"
+    binaries:
+      - klens
+
 checksum:
   name_template: checksums.txt
 
@@ -60,6 +88,23 @@ release:
   name_template: "klens {{.Tag}}"
   footer: |
     ## Installation
+
+    **Homebrew (macOS):**
+    ```
+    brew install --cask hermanu/klens/klens
+    ```
+
+    **Debian / Ubuntu:**
+    ```
+    wget https://github.com/hermanu/klens/releases/download/{{.Tag}}/klens_{{.Version}}_linux_amd64.deb
+    sudo dpkg -i klens_{{.Version}}_linux_amd64.deb
+    ```
+
+    **Fedora / RHEL:**
+    ```
+    wget https://github.com/hermanu/klens/releases/download/{{.Tag}}/klens_{{.Version}}_linux_amd64.rpm
+    sudo rpm -i klens_{{.Version}}_linux_amd64.rpm
+    ```
 
     **Binary (Linux/macOS/Windows):** download the archive for your platform from the assets above.
 
