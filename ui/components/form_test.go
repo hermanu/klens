@@ -40,7 +40,6 @@ func TestForm_DeleteSelected(t *testing.T) {
 func TestForm_DeleteLast(t *testing.T) {
 	f := components.NewForm(map[string][]byte{"ONLY": []byte("one")})
 	f = f.DeleteSelected()
-	// deleting the last row should leave 0 rows without panicking
 	if f.RowCount() != 0 {
 		t.Errorf("want 0 rows, got %d", f.RowCount())
 	}
@@ -48,39 +47,27 @@ func TestForm_DeleteLast(t *testing.T) {
 
 func TestForm_Data(t *testing.T) {
 	f := components.NewForm(map[string][]byte{
-		"KEY": []byte("val"),
+		"K1": []byte("v1"),
+		"K2": []byte("v2"),
 	})
-	data := f.Data()
-	if string(data["KEY"]) != "val" {
-		t.Errorf("want val, got %s", data["KEY"])
+	d := f.Data()
+	if string(d["K1"]) != "v1" || string(d["K2"]) != "v2" {
+		t.Errorf("Data() round-trip failed: %v", d)
 	}
 }
 
 func TestForm_IsDirty(t *testing.T) {
 	f := components.NewForm(map[string][]byte{"K": []byte("v")})
 	if f.IsDirty() {
-		t.Error("fresh form should not be dirty")
+		t.Error("freshly built form should be clean")
 	}
-	f = f.AddRow("K2", "v2")
+	f = f.AddRow("NEW", "val")
 	if !f.IsDirty() {
 		t.Error("form should be dirty after AddRow")
 	}
 }
 
-func TestForm_HideToggle(t *testing.T) {
-	f := components.NewForm(map[string][]byte{"SECRET": []byte("password")})
-	if f.IsHidden(0) {
-		t.Error("row should not be hidden by default")
-	}
-	f = f.ToggleHide(0)
-	if !f.IsHidden(0) {
-		t.Error("row should be hidden after ToggleHide")
-	}
-}
-
-// keyMsg builds a tea.KeyMsg matching the textinput parser. For ASCII
-// characters we use KeyRunes; for named keys we use the corresponding
-// tea.KeyType.
+// keyMsg builds a tea.KeyMsg matching the textinput parser.
 func keyMsg(s string) tea.KeyMsg {
 	switch s {
 	case "esc":
@@ -89,29 +76,14 @@ func keyMsg(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "tab":
 		return tea.KeyMsg{Type: tea.KeyTab}
-	case "right":
-		return tea.KeyMsg{Type: tea.KeyRight}
-	case "left":
-		return tea.KeyMsg{Type: tea.KeyLeft}
 	case "up":
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "down":
 		return tea.KeyMsg{Type: tea.KeyDown}
-	case "ctrl+s":
-		return tea.KeyMsg{Type: tea.KeyCtrlS}
-	case "ctrl+a":
-		return tea.KeyMsg{Type: tea.KeyCtrlA}
-	case "ctrl+d":
-		return tea.KeyMsg{Type: tea.KeyCtrlD}
-	case "ctrl+h":
-		return tea.KeyMsg{Type: tea.KeyCtrlH}
 	}
-	// Single rune fallback.
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
 
-// sendKeys feeds a sequence of keys through Update and returns the
-// final form plus a slice of any commands produced (one per keystroke).
 func sendKeys(t *testing.T, f components.Form, keys ...string) (components.Form, []tea.Cmd) {
 	t.Helper()
 	cmds := make([]tea.Cmd, 0, len(keys))
@@ -123,58 +95,6 @@ func sendKeys(t *testing.T, f components.Form, keys ...string) (components.Form,
 	return f, cmds
 }
 
-func TestForm_DirtyAfterEditValue(t *testing.T) {
-	f := components.NewForm(map[string][]byte{"DATABASE_URL": []byte("postgres://old")})
-	if f.IsDirty() {
-		t.Fatal("fresh form should not be dirty")
-	}
-	// Enter ModeValueEdit, type "x".
-	f, _ = sendKeys(t, f, "right", "x")
-	if f.Mode() != components.ModeValueEdit {
-		t.Errorf("want ModeValueEdit, got %v", f.Mode())
-	}
-	if !f.IsDirty() {
-		t.Error("form should be dirty after typing in value editor")
-	}
-}
-
-func TestForm_EscWhenDirtyOpensConfirm(t *testing.T) {
-	f := components.NewForm(map[string][]byte{"K": []byte("v")})
-	// Edit value to make it dirty.
-	f, _ = sendKeys(t, f, "right", "x", "esc")
-	// Back in ModeNav, still dirty.
-	if !f.IsDirty() {
-		t.Fatal("expected dirty after edit")
-	}
-	if f.Mode() != components.ModeNav {
-		t.Fatalf("want ModeNav after esc-from-edit, got %v", f.Mode())
-	}
-	// Now esc again — should open discard confirm.
-	f, _ = sendKeys(t, f, "esc")
-	if f.Mode() != components.ModeConfirmDiscard {
-		t.Errorf("want ModeConfirmDiscard, got %v", f.Mode())
-	}
-}
-
-func TestForm_DiscardYReturnsClean(t *testing.T) {
-	f := components.NewForm(map[string][]byte{"K": []byte("v")})
-	f, _ = sendKeys(t, f, "right", "x", "esc", "esc")
-	if f.Mode() != components.ModeConfirmDiscard {
-		t.Fatalf("setup: want ModeConfirmDiscard, got %v", f.Mode())
-	}
-	f, _ = sendKeys(t, f, "y")
-	if f.IsDirty() {
-		t.Error("form should be clean after discard")
-	}
-	if f.Mode() != components.ModeNav {
-		t.Errorf("want ModeNav after discard, got %v", f.Mode())
-	}
-	if got := string(f.Data()["K"]); got != "v" {
-		t.Errorf("want original value v, got %q", got)
-	}
-}
-
-// fakeSaveCmd is a sentinel used to identify our own emitted message.
 func msgFromCmd(c tea.Cmd) tea.Msg {
 	if c == nil {
 		return nil
@@ -182,119 +102,90 @@ func msgFromCmd(c tea.Cmd) tea.Msg {
 	return c()
 }
 
-func TestForm_SaveTwoStep(t *testing.T) {
+// TestForm_EnterEntersEdit verifies ↵ on a row drops into ModeEdit on
+// the value field.
+func TestForm_EnterEntersEdit(t *testing.T) {
 	f := components.NewForm(map[string][]byte{"K": []byte("v")})
-	// Edit, ^s -> opens save confirm.
-	f, cmds := sendKeys(t, f, "right", "x", "esc", "ctrl+s")
-	if f.Mode() != components.ModeConfirmSave {
-		t.Fatalf("want ModeConfirmSave after first ^s, got %v", f.Mode())
-	}
-	// No FormSaveRequestedMsg should have been emitted yet.
-	for i, c := range cmds {
-		if _, ok := msgFromCmd(c).(components.FormSaveRequestedMsg); ok {
-			t.Fatalf("save msg leaked from keystroke %d (before second ^s)", i)
-		}
-	}
-	// Second ^s commits.
-	_, cmds = sendKeys(t, f, "ctrl+s")
-	if len(cmds) != 1 {
-		t.Fatalf("want one cmd from second ^s, got %d", len(cmds))
-	}
-	msg := msgFromCmd(cmds[0])
-	if _, ok := msg.(components.FormSaveRequestedMsg); !ok {
-		t.Errorf("want FormSaveRequestedMsg, got %T (%v)", msg, msg)
+	f, _ = sendKeys(t, f, "enter")
+	if f.Mode() != components.ModeEdit {
+		t.Errorf("want ModeEdit after enter, got %v", f.Mode())
 	}
 }
 
-func TestForm_DiffCounts(t *testing.T) {
-	// Original {a:1, b:2}.
-	f := components.NewForm(map[string][]byte{
-		"a": []byte("1"),
-		"b": []byte("2"),
-	})
-	// Mutate to {a:1, b:9, c:3}: change b, add c.
-	// b is at row index 1 (NewForm sorts keys), so down to b, edit value to 9.
-	// Currently selected=0 (a). down→b. right→ModeValueEdit. Type 9 — but
-	// the existing value is "2"; typing 9 appends → "29". Use backspace first.
-	f, _ = sendKeys(t, f, "down", "right")
-	// Send a backspace then "9".
-	f, _ = f.Update(tea.KeyMsg{Type: tea.KeyBackspace})
-	f, _ = f.Update(keyMsg("9"))
-	// Back to nav, add a row.
-	f, _ = sendKeys(t, f, "esc", "ctrl+a")
-	// In ModeKeyEdit on the new row — type "c".
-	f, _ = f.Update(keyMsg("c"))
-	// Tab/right to value, type "3".
-	f, _ = sendKeys(t, f, "esc", "right")
-	f, _ = f.Update(keyMsg("3"))
-	// Trigger save confirm to populate diff counts.
-	f, _ = sendKeys(t, f, "esc", "ctrl+s")
-	if f.Mode() != components.ModeConfirmSave {
-		t.Fatalf("want ModeConfirmSave, got %v", f.Mode())
-	}
-	a, r, c := f.DiffCounts()
-	if a != 1 {
-		t.Errorf("added: want 1, got %d", a)
-	}
-	if r != 0 {
-		t.Errorf("removed: want 0, got %d", r)
-	}
-	if c != 1 {
-		t.Errorf("changed: want 1, got %d", c)
-	}
-}
-
-// TestForm_VimInsertEnters verifies the vim `i` binding lands in the
-// value editor (matching the existing Enter / right shortcut).
-func TestForm_VimInsertEnters(t *testing.T) {
+// TestForm_EditEscReturnsNav verifies esc in edit mode commits the
+// field (textinput retains its value) and returns to nav.
+func TestForm_EditEscReturnsNav(t *testing.T) {
 	f := components.NewForm(map[string][]byte{"K": []byte("v")})
-	f, _ = sendKeys(t, f, "i")
-	if f.Mode() != components.ModeValueEdit {
-		t.Errorf("want ModeValueEdit after `i`, got %v", f.Mode())
+	f, _ = sendKeys(t, f, "enter", "x", "esc")
+	if f.Mode() != components.ModeNav {
+		t.Errorf("want ModeNav after esc-from-edit, got %v", f.Mode())
 	}
-}
-
-// TestForm_VimWriteOpensConfirm verifies `:w` enters the diff preview
-// (ModeConfirmSave) when the form is dirty.
-func TestForm_VimWriteOpensConfirm(t *testing.T) {
-	f := components.NewForm(map[string][]byte{"K": []byte("v")})
-	f, _ = sendKeys(t, f, "i", "x", "esc")
 	if !f.IsDirty() {
-		t.Fatal("setup: expected dirty after typing")
-	}
-	// `:w` enters the diff preview rather than saving immediately —
-	// matches the existing ctrl+s flow.
-	f, _ = sendKeys(t, f, ":", "w", "enter")
-	if f.Mode() != components.ModeConfirmSave {
-		t.Errorf("want ModeConfirmSave after :w on dirty form, got %v", f.Mode())
+		t.Error("form should be dirty after typing in edit mode")
 	}
 }
 
-// TestForm_VimQuitCleanEmits verifies `:q` on a clean form emits a
-// FormQuitRequestedMsg so the host view can pop back.
-func TestForm_VimQuitCleanEmits(t *testing.T) {
+// TestForm_EscOnCleanQuits verifies esc on a clean form emits
+// FormQuitRequestedMsg straight away (no confirm dialog).
+func TestForm_EscOnCleanQuits(t *testing.T) {
 	f := components.NewForm(map[string][]byte{"K": []byte("v")})
-	_, cmds := sendKeys(t, f, ":", "q", "enter")
-	// The last cmd should produce FormQuitRequestedMsg.
+	_, cmds := sendKeys(t, f, "esc")
 	got := msgFromCmd(cmds[len(cmds)-1])
 	if _, ok := got.(components.FormQuitRequestedMsg); !ok {
-		t.Errorf("want FormQuitRequestedMsg from :q on clean form, got %T", got)
+		t.Errorf("want FormQuitRequestedMsg from esc on clean form, got %T", got)
 	}
 }
 
-// TestForm_VimQuitDirtyOpensDiscard verifies `:q` on a dirty form
-// blocks (vim semantics) by surfacing the discard confirm instead.
-func TestForm_VimQuitDirtyOpensDiscard(t *testing.T) {
+// TestForm_EscOnDirtyOpensConfirmExit verifies esc on a dirty form
+// opens the confirm-exit bar instead of quitting.
+func TestForm_EscOnDirtyOpensConfirmExit(t *testing.T) {
 	f := components.NewForm(map[string][]byte{"K": []byte("v")})
-	f, _ = sendKeys(t, f, "i", "x", "esc")
-	f, _ = sendKeys(t, f, ":", "q", "enter")
-	if f.Mode() != components.ModeConfirmDiscard {
-		t.Errorf("want ModeConfirmDiscard from :q on dirty form, got %v", f.Mode())
+	f, _ = sendKeys(t, f, "enter", "x", "esc") // dirty + back to nav
+	f, _ = sendKeys(t, f, "esc")
+	if f.Mode() != components.ModeConfirmExit {
+		t.Errorf("want ModeConfirmExit, got %v", f.Mode())
 	}
 }
 
-// TestForm_VimDDDeletes verifies the `dd` two-stroke deletes the row.
-func TestForm_VimDDDeletes(t *testing.T) {
+// TestForm_ConfirmExitSaveEmits verifies `s` in ModeConfirmExit emits
+// FormSaveRequestedMsg so the host view can persist via its service.
+func TestForm_ConfirmExitSaveEmits(t *testing.T) {
+	f := components.NewForm(map[string][]byte{"K": []byte("v")})
+	f, _ = sendKeys(t, f, "enter", "x", "esc", "esc")
+	if f.Mode() != components.ModeConfirmExit {
+		t.Fatalf("setup: want ModeConfirmExit, got %v", f.Mode())
+	}
+	_, cmds := sendKeys(t, f, "s")
+	got := msgFromCmd(cmds[len(cmds)-1])
+	if _, ok := got.(components.FormSaveRequestedMsg); !ok {
+		t.Errorf("want FormSaveRequestedMsg from `s`, got %T", got)
+	}
+}
+
+// TestForm_ConfirmExitDiscardEmits verifies `d` emits FormQuitRequestedMsg.
+func TestForm_ConfirmExitDiscardEmits(t *testing.T) {
+	f := components.NewForm(map[string][]byte{"K": []byte("v")})
+	f, _ = sendKeys(t, f, "enter", "x", "esc", "esc")
+	_, cmds := sendKeys(t, f, "d")
+	got := msgFromCmd(cmds[len(cmds)-1])
+	if _, ok := got.(components.FormQuitRequestedMsg); !ok {
+		t.Errorf("want FormQuitRequestedMsg from `d`, got %T", got)
+	}
+}
+
+// TestForm_ConfirmExitCancelReturnsNav verifies esc in the confirm bar
+// drops back to nav so the user can keep editing.
+func TestForm_ConfirmExitCancelReturnsNav(t *testing.T) {
+	f := components.NewForm(map[string][]byte{"K": []byte("v")})
+	f, _ = sendKeys(t, f, "enter", "x", "esc", "esc")
+	f, _ = sendKeys(t, f, "esc")
+	if f.Mode() != components.ModeNav {
+		t.Errorf("want ModeNav after cancel, got %v", f.Mode())
+	}
+}
+
+// TestForm_DDDeletes verifies the `dd` two-stroke removes the current row.
+func TestForm_DDDeletes(t *testing.T) {
 	f := components.NewForm(map[string][]byte{
 		"A": []byte("1"),
 		"B": []byte("2"),
@@ -303,5 +194,18 @@ func TestForm_VimDDDeletes(t *testing.T) {
 	f, _ = sendKeys(t, f, "d", "d")
 	if f.RowCount() != before-1 {
 		t.Errorf("want %d rows after dd, got %d", before-1, f.RowCount())
+	}
+}
+
+// TestForm_OAddsRow verifies `o` appends and lands on the new row in edit.
+func TestForm_OAddsRow(t *testing.T) {
+	f := components.NewForm(map[string][]byte{"K": []byte("v")})
+	before := f.RowCount()
+	f, _ = sendKeys(t, f, "o")
+	if f.RowCount() != before+1 {
+		t.Errorf("want %d rows after o, got %d", before+1, f.RowCount())
+	}
+	if f.Mode() != components.ModeEdit {
+		t.Errorf("want ModeEdit after o, got %v", f.Mode())
 	}
 }

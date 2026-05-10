@@ -188,15 +188,10 @@ func (v ConfigMapsView) openEditor() (ConfigMapsView, tea.Cmd) {
 }
 
 func (v ConfigMapsView) updateEdit(msg tea.KeyMsg) (ConfigMapsView, tea.Cmd) {
-	// Esc only exits when the form is in nav mode and clean — vim
-	// semantics. In other modes esc returns control to the form so it
-	// can leave insert mode or cancel the ex prompt.
-	if msg.String() == "esc" && v.form.Mode() == components.ModeNav && !v.form.IsDirty() {
-		v.mode = configMapsModeList
-		v.current = nil
-		v.saveMsg = ""
-		return v, nil
-	}
+	// Every keystroke goes to the form — exit decisions live there.
+	// FormSaveRequestedMsg / FormQuitRequestedMsg are caught by the
+	// view's outer Update so the editor closes after a save success
+	// or a discard.
 	var cmd tea.Cmd
 	v.form, cmd = v.form.Update(msg)
 	return v, cmd
@@ -244,6 +239,11 @@ func (v ConfigMapsView) Title() string { return "configmaps" }
 // Filter implements views.Filterable.
 func (v ConfigMapsView) Filter() string { return v.filter }
 
+// CapturesKeys implements views.Capturing — while editing a configmap
+// the form owns every keystroke so app-level shortcuts (:, ctrl+p, ?,
+// /) don't conflict with the inner editor.
+func (v ConfigMapsView) CapturesKeys() bool { return v.mode == configMapsModeEdit }
+
 // Count implements views.View.
 func (v ConfigMapsView) Count() (visible, total int) {
 	return len(v.visibleConfigMaps()), len(v.configmaps)
@@ -262,14 +262,16 @@ func (v ConfigMapsView) Chips() []layout.FilterChip {
 }
 
 // KeyHints implements views.View. List mode only advertises Enter and `/`;
-// yaml/delete live in KeyMap as Soon entries. Edit-mode hints lead with
-// vim verbs since those are the canonical bindings.
+// yaml/delete live in KeyMap as Soon entries. Edit-mode hints align with
+// the simplified 3-mode form: ↵ edits, esc backs out (or opens the
+// save/discard confirm if dirty).
 func (v ConfigMapsView) KeyHints() []layout.KeyHint {
 	if v.mode == configMapsModeEdit {
 		return []layout.KeyHint{
-			{Key: "i", Label: "edit"},
-			{Key: ":w", Label: "save"},
-			{Key: ":q", Label: "quit"},
+			{Key: "↵", Label: "edit"},
+			{Key: "esc", Label: "back"},
+			{Key: "o", Label: "add"},
+			{Key: "dd", Label: "del"},
 		}
 	}
 	return []layout.KeyHint{
@@ -279,24 +281,16 @@ func (v ConfigMapsView) KeyHints() []layout.KeyHint {
 }
 
 // KeyMap implements views.KeyMap and powers the `?` help overlay. The
-// edit-mode keymap surfaces the vim bindings so newcomers can discover
-// them; ctrl+ aliases stay listed for fluency.
+// edit-mode keymap matches the simplified 3-mode form.
 func (v ConfigMapsView) KeyMap() []components.KeySpec {
 	if v.mode == configMapsModeEdit {
 		return []components.KeySpec{
-			{Key: "i / a", Label: "edit value"},
-			{Key: "I", Label: "edit key"},
-			{Key: "h / l", Label: "switch column"},
+			{Key: "↵", Label: "edit selected row"},
+			{Key: "esc", Label: "back / open exit confirm"},
 			{Key: "j / k", Label: "next / prev row"},
-			{Key: "g / G", Label: "first / last"},
-			{Key: ":w", Label: "save (preview)"},
-			{Key: ":q", Label: "quit (refuses if dirty)"},
-			{Key: ":wq", Label: "save and quit"},
-			{Key: ":q!", Label: "discard and quit"},
 			{Key: "o", Label: "add row"},
 			{Key: "dd", Label: "delete row"},
-			{Key: "esc", Label: "exit insert / cancel"},
-			{Key: "ctrl+s", Label: "save (alias)"},
+			{Key: "s / d / esc", Label: "save / discard / cancel (in confirm)"},
 		}
 	}
 	return []components.KeySpec{
@@ -308,9 +302,11 @@ func (v ConfigMapsView) KeyMap() []components.KeySpec {
 }
 
 // Table implements views.View. In edit mode it returns the form body so the
-// shell can swap the central pane without re-routing render calls.
+// shell can swap the central pane without re-routing render calls. The form
+// gets the full pane width so the editor doesn't render in a narrow strip.
 func (v ConfigMapsView) Table(width, height int) string {
 	if v.mode == configMapsModeEdit && v.current != nil {
+		v.form = v.form.SetWidth(width)
 		return v.formView()
 	}
 	v.table = v.table.SetWidth(width).SetHeight(height)

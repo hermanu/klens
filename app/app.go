@@ -396,6 +396,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.showContextPicker {
 			return m.updateContextPicker(msg)
 		}
+		// View-claimed key capture (e.g. secrets/configmaps in edit mode):
+		// route straight to the active view, skipping every global shortcut
+		// so the inner editor's `:`, `?`, `/` etc. don't fight the app's
+		// command palette / help overlay / filter focus. ctrl+c is already
+		// handled above as the emergency exit.
+		if cap, ok := m.currentView().(views.Capturing); ok && cap.CapturesKeys() {
+			return m.routeToCurrentView(msg)
+		}
 		// `?` toggles the help overlay from any state where the filter is not
 		// focused and no other modal/inline mode is up. Defining this here
 		// (above updateGlobal) means the toggle works regardless of the
@@ -477,14 +485,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// k9s-style drill-down: a non-pod list view (deployments / services /
-	// nodes / etc.) asked us to switch to pods filtered by some substring.
-	// We push the current view onto the history stack so Esc returns the
-	// user to where they came from.
+	// nodes / etc.) asked us to switch to pods narrowed by some substring.
+	// We apply that as a programmatic *scope* on PodsView rather than
+	// hijacking the filter input — the user's typed query stays empty so
+	// the bottom command bar reads as clean. The scope chip in the strip
+	// shows the user why they're seeing a subset. Esc-back pops the
+	// originating view (which preserves its own filter independently).
 	if d, ok := msg.(views.DrillToPodsMsg); ok {
 		m.history = append(m.history, m.current)
 		m.current = viewPods
-		m.filterInput.SetValue(d.Filter)
-		next, c := m.routeToCurrentView(views.FilterMsg{Query: d.Filter})
+		label := d.Filter
+		if d.Label != "" {
+			label = d.Label
+		}
+		m.pods = m.pods.WithScope(d.Filter, label)
+		// Clear the bottom-bar filter — we want this view to feel fresh,
+		// matching the user's mental model ("I drilled in; the input is
+		// my own filter, not the deployment name").
+		m.filterInput.SetValue("")
+		// Push an empty FilterMsg so PodsView clears any stale filter
+		// from a previous /-typed query (the scope is independent).
+		next, c := m.routeToCurrentView(views.FilterMsg{Query: ""})
 		nm, _ := next.(Model)
 		nm.filterInput = m.filterInput
 		go nm.persistState()
@@ -499,6 +520,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history = append(m.history, m.current)
 		m.namespace = sel.Name
 		m.current = viewPods
+		// Namespace switch is a fresh scope — drop any leftover drill
+		// scope from a previous workload narrowing.
+		m.pods = m.pods.WithScope("", "")
 		go m.persistState()
 		nm, broadcastCmd := m.broadcastToViews(views.NamespaceChangedMsg{Namespace: sel.Name})
 		nm2, _ := nm.(Model)
@@ -692,6 +716,12 @@ func (m Model) runCommand(name string) (tea.Model, tea.Cmd) {
 	case "pods", "deployments", "services", "secrets", "configmaps", "namespaces", "nodes", "pvcs":
 		m.current = paletteNameToView(name)
 		m.history = nil
+		// Non-drill entry to pods clears any stale scope so the user
+		// doesn't see narrowing they didn't ask for. Drilling-in
+		// (DrillToPodsMsg) is the only path that re-applies it.
+		if m.current == viewPods {
+			m.pods = m.pods.WithScope("", "")
+		}
 		m = m.syncFilterInput()
 		go m.persistState()
 		return m, m.reloadCmd()
