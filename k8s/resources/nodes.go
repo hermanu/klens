@@ -35,11 +35,26 @@ func (s *NodeSvc) ListNodes(ctx context.Context) ([]NodeItem, error) {
 }
 
 func nodeToItem(n corev1.Node) NodeItem {
+	cpu, mem, pods := "", "", ""
+	if q, ok := n.Status.Capacity[corev1.ResourceCPU]; ok {
+		cpu = q.String()
+	}
+	if q, ok := n.Status.Capacity[corev1.ResourceMemory]; ok {
+		mem = q.String()
+	}
+	if q, ok := n.Status.Capacity[corev1.ResourcePods]; ok {
+		pods = q.String()
+	}
 	return NodeItem{
 		Name:    n.Name,
 		Status:  nodeStatus(n),
 		Roles:   nodeRoles(n),
 		Version: n.Status.NodeInfo.KubeletVersion,
+		Kernel:  n.Status.NodeInfo.KernelVersion,
+		Runtime: n.Status.NodeInfo.ContainerRuntimeVersion,
+		CPU:     cpu,
+		Memory:  mem,
+		Pods:    pods,
 		Age:     time.Since(n.CreationTimestamp.Time),
 	}
 }

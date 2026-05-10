@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -9,7 +10,16 @@ import (
 type Config struct {
 	Kubeconfig string `yaml:"kubeconfig"`
 	Accent     string `yaml:"accent"`
-	Namespace  string `yaml:"namespace"`
+	// Namespace is the last-opened scope (empty = all namespaces).
+	Namespace string `yaml:"namespace"`
+	// LastView is the resource view klens reopens to ("pods", "deployments",
+	// "services", "secrets", "configmaps", "namespaces", "nodes", "pvcs").
+	// Empty = pods (default landing).
+	LastView string `yaml:"last_view"`
+	// LogsSinceSeconds is the lookback window users last picked in the logs
+	// view; carried across sessions so power users don't keep re-selecting.
+	// 0 = use the built-in default (1800s = 30 min).
+	LogsSinceSeconds int64 `yaml:"logs_since_seconds"`
 }
 
 func defaults() Config {
@@ -19,11 +29,16 @@ func defaults() Config {
 	}
 }
 
+// defaultPath resolves to ~/.klens/config.yaml.
+func defaultPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".klens", "config.yaml")
+}
+
 func Load(path string) (Config, error) {
 	cfg := defaults()
 	if path == "" {
-		home, _ := os.UserHomeDir()
-		path = home + "/.klens/config.yaml"
+		path = defaultPath()
 	}
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -33,4 +48,21 @@ func Load(path string) (Config, error) {
 		return cfg, err
 	}
 	return cfg, yaml.Unmarshal(data, &cfg)
+}
+
+// Save writes the config to disk, creating ~/.klens/ if needed. Path "" uses
+// the default path. Used to persist the last-opened namespace so klens
+// re-opens to the user's most recent scope.
+func Save(cfg Config, path string) error {
+	if path == "" {
+		path = defaultPath()
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }

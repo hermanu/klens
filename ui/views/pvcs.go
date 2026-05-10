@@ -2,6 +2,7 @@ package views
 
 import (
 	"context"
+	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/hermanu/klens/k8s"
@@ -9,17 +10,17 @@ import (
 	"github.com/hermanu/klens/port"
 	"github.com/hermanu/klens/ui/components"
 	"github.com/hermanu/klens/ui/layout"
-	"github.com/hermanu/klens/ui/theme"
 )
 
 var pvcCols = []components.Column{
-	{Header: "NAME", Width: 32},
-	{Header: "STATUS", Width: 10},
+	{Header: "NAMESPACE", Width: 14},
+	{Header: "NAME", Width: 32, Flex: true},
+	{Header: "STATUS", Width: 12},
 	{Header: "VOLUME", Width: 24},
-	{Header: "CAPACITY", Width: 10},
+	{Header: "CAPACITY", Width: 10, Align: components.AlignRight},
 	{Header: "ACCESS MODES", Width: 16},
 	{Header: "STORAGECLASS", Width: 16},
-	{Header: "AGE", Width: 8},
+	{Header: "AGE", Width: 6, Align: components.AlignRight},
 }
 
 type PVCsView struct {
@@ -27,9 +28,8 @@ type PVCsView struct {
 	namespace string
 	pvcs      []resources.PVCItem
 	table     components.Table
+	filter    string
 	err       error
-	width     int
-	height    int
 }
 
 func NewPVCsView(svc port.PVCService, namespace string) PVCsView {
@@ -40,15 +40,39 @@ func NewPVCsView(svc port.PVCService, namespace string) PVCsView {
 	}
 }
 
+// pvcsListedMsg carries the result of an async ListPVCs call.
+type pvcsListedMsg struct {
+	items []resources.PVCItem
+	err   error
+}
+
 func (v PVCsView) Update(msg tea.Msg) (PVCsView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case k8s.PVCsUpdatedMsg:
-		items, err := v.svc.ListPVCs(context.Background(), v.namespace)
-		v.err = err
-		if err == nil {
-			v.pvcs = items
-			v.table = v.table.SetRows(pvcRows(items))
+		ns := v.namespace
+		svc := v.svc
+		return v, func() tea.Msg {
+			items, err := svc.ListPVCs(context.Background(), ns)
+			return pvcsListedMsg{items: items, err: err}
 		}
+
+	case pvcsListedMsg:
+		v.err = msg.err
+		if msg.err == nil {
+			v.pvcs = msg.items
+			v.table = v.table.SetRows(v.rows())
+		}
+		return v, nil
+
+	case FilterMsg:
+		v.filter = msg.Query
+		v.table = v.table.SetRows(v.rows())
+		return v, nil
+
+	case NamespaceChangedMsg:
+		v.namespace = msg.Namespace
+		v.pvcs = nil
+		v.table = v.table.SetRows(nil)
 		return v, nil
 
 	case tea.KeyMsg:
@@ -61,44 +85,158 @@ func (v PVCsView) Update(msg tea.Msg) (PVCsView, tea.Cmd) {
 			v.table = v.table.MoveTop()
 		case "G":
 			v.table = v.table.MoveBottom()
+		case "enter":
+			// Open a full-screen generic describe of the focused PVC. Reuses
+			// the SPEC block for the body — same shape any future non-pod
+			// describe will land on.
+			p := v.selectedPVC()
+			if p == nil {
+				return v, nil
+			}
+			title := "pvc/" + p.Name
+			kvs := v.focusKVs()
+			return v, func() tea.Msg {
+				return SwitchToGenericDescribeMsg{Title: title, KVs: kvs}
+			}
 		}
-
-	case tea.WindowSizeMsg:
-		v.width = msg.Width
-		v.height = msg.Height
-		v.table = v.table.SetWidth(msg.Width)
 	}
 	return v, nil
 }
 
-func (v PVCsView) View() string {
-	header := layout.Header(v.width, layout.HeaderConfig{
-		Namespace: v.namespace,
-		Count:     len(v.pvcs),
-		Total:     len(v.pvcs),
-		Watching:  true,
-	})
-	body := v.table.View()
-	if v.err != nil {
-		body = theme.Accent.Render("error: " + v.err.Error())
+// selectedPVC resolves the table cursor back to a PVCItem. Returns nil for
+// empty tables. Resolves via the filtered slice so the index aligns with the
+// table's current view.
+func (v PVCsView) selectedPVC() *resources.PVCItem {
+	if v.table.SelectedRow() == nil {
+		return nil
 	}
-	statusbar := layout.StatusBar(v.width, []layout.KeyHint{
-		{Key: "j/k", Label: "navigate"},
-		{Key: ":", Label: "command"},
-	}, "pvcs")
-	return header + "\n" + body + statusbar
+	idx := v.table.SelectedIndex()
+	visible := v.visiblePVCs()
+	if idx >= len(visible) {
+		return nil
+	}
+	p := visible[idx]
+	for i := range v.pvcs {
+		if v.pvcs[i].Name == p.Name && v.pvcs[i].Namespace == p.Namespace {
+			return &v.pvcs[i]
+		}
+	}
+	return nil
 }
 
-func pvcRows(items []resources.PVCItem) []components.Row {
-	rows := make([]components.Row, len(items))
-	for i, p := range items {
+// Title implements views.View.
+func (v PVCsView) Title() string { return "pvcs" }
+
+// Filter implements views.Filterable.
+func (v PVCsView) Filter() string { return v.filter }
+
+// Count implements views.View.
+func (v PVCsView) Count() (visible, total int) {
+	return len(v.visiblePVCs()), len(v.pvcs)
+}
+
+// Chips implements views.View.
+func (v PVCsView) Chips() []layout.FilterChip {
+	chips := []layout.FilterChip{}
+	if v.filter != "" {
+		chips = append(chips, layout.FilterChip{Key: "/", Value: v.filter, Strong: true})
+	}
+	return chips
+}
+
+// KeyHints implements views.View. The Enter -> describe handler is wired in
+// a follow-up wave; we still advertise it here because the user expects it
+// and the gap is one wave wide. yaml/delete live in KeyMap as Soon entries.
+func (v PVCsView) KeyHints() []layout.KeyHint {
+	return []layout.KeyHint{
+		{Key: "↵", Label: "describe"},
+		{Key: "/", Label: "filter"},
+	}
+}
+
+// KeyMap implements views.KeyMap and powers the `?` help overlay.
+func (v PVCsView) KeyMap() []components.KeySpec {
+	return []components.KeySpec{
+		{Key: "↵", Label: "describe"},
+		{Key: "/", Label: "filter"},
+		{Key: "y", Label: "yaml", Soon: true},
+		{Key: "d", Label: "delete", Soon: true},
+	}
+}
+
+// Table implements views.View.
+func (v PVCsView) Table(width, height int) string {
+	v.table = v.table.SetWidth(width).SetHeight(height)
+	if v.err != nil {
+		return "error: " + v.err.Error()
+	}
+	return v.table.View()
+}
+
+// Details implements views.View. Renders a uniform SPEC block driven by
+// focusKVs() — status, volume, capacity, access modes, storage class, age.
+func (v PVCsView) Details(width, height int) string {
+	p := v.selectedPVC()
+	if p == nil {
+		return ""
+	}
+	subtitle := p.Namespace
+	if p.Status != "" {
+		subtitle = fmt.Sprintf("%s · %s · %s", p.Namespace, p.Status, fmtAge(p.Age))
+	}
+	return layout.DefaultDetails(width, height, layout.DetailsBlock{
+		Title:    p.Name,
+		Subtitle: subtitle,
+		KVs:      v.focusKVs(),
+	})
+}
+
+// focusKVs returns the SPEC fields for the focused PVC. Reused by the Enter
+// handler to populate the GenericDescribeView body so the "describe" sub-view
+// is just a full-width version of the right pane.
+func (v PVCsView) focusKVs() []layout.KV {
+	p := v.selectedPVC()
+	if p == nil {
+		return nil
+	}
+	return []layout.KV{
+		{Key: "status", Value: fallbackOr(p.Status)},
+		{Key: "volume", Value: fallbackOr(p.Volume)},
+		{Key: "capacity", Value: fallbackOr(p.Capacity)},
+		{Key: "access modes", Value: fallbackOr(p.AccessModes)},
+		{Key: "storage class", Value: fallbackOr(p.StorageClass)},
+		{Key: "age", Value: fmtAge(p.Age)},
+	}
+}
+
+// visiblePVCs returns the pvcs slice after applying v.filter through
+// matchesFields. Fields included: name, namespace, status, volume, capacity,
+// access modes, storage class — every stringy column the user sees.
+func (v PVCsView) visiblePVCs() []resources.PVCItem {
+	if v.filter == "" {
+		return v.pvcs
+	}
+	out := make([]resources.PVCItem, 0, len(v.pvcs))
+	for _, p := range v.pvcs {
+		if matchesFields(v.filter, p.Name, p.Namespace, p.Status, p.Volume, p.Capacity, p.AccessModes, p.StorageClass) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (v PVCsView) rows() []components.Row {
+	pvcs := v.visiblePVCs()
+	rows := make([]components.Row, len(pvcs))
+	for i, p := range pvcs {
 		rows[i] = components.Row{
-			p.Name,
-			p.Status,
-			p.Volume,
+			components.NSChip(p.Namespace),
+			highlightMatch(p.Name, v.filter),
+			components.StatusPill(p.Status),
+			highlightMatch(p.Volume, v.filter),
 			p.Capacity,
 			p.AccessModes,
-			p.StorageClass,
+			highlightMatch(p.StorageClass, v.filter),
 			fmtAge(p.Age),
 		}
 	}

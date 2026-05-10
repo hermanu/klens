@@ -8,40 +8,30 @@ import (
 	"github.com/hermanu/klens/ui/theme"
 )
 
-// PaletteCmd is a single command in the palette.
-type PaletteCmd struct {
-	Name  string // e.g. "pods"
-	Desc  string // e.g. "list pods"
-	Alias string // e.g. ":po"
-}
+// PaletteCmd is preserved as a name alias for backwards-compatibility with
+// callers/tests that constructed palette entries directly. New code should
+// use components.Command + DefaultCommands / FilterCommands from commands.go.
+type PaletteCmd = Command
 
-// defaultCmds are the built-in resource navigation commands.
-var defaultCmds = []PaletteCmd{
-	{Name: "pods",        Desc: "list pods",                     Alias: ":po"},
-	{Name: "deployments", Desc: "list deployments",              Alias: ":dp"},
-	{Name: "services",    Desc: "list services",                 Alias: ":svc"},
-	{Name: "secrets",     Desc: "list secrets",                  Alias: ":sec"},
-	{Name: "configmaps",  Desc: "list configmaps",               Alias: ":cm"},
-	{Name: "namespaces",  Desc: "list namespaces",               Alias: ":ns"},
-	{Name: "nodes",       Desc: "list nodes",                    Alias: ":no"},
-	{Name: "pvcs",        Desc: "list persistent volume claims", Alias: ":pvc"},
-	{Name: "quit",        Desc: "exit klens",                    Alias: ":q"},
-}
-
-// Palette is an immutable command palette component.
+// Palette is an immutable command palette component (the modal surface).
+// The inline ex-mode (`:`) doesn't use this — it renders its own one-line
+// suggestion strip and shares only the underlying command list helpers.
 type Palette struct {
-	cmds     []PaletteCmd
+	cmds     []Command
 	input    textinput.Model
 	selected int
 }
 
-// NewPalette creates a Palette. Pass nil for cmds to use the default resource list.
-func NewPalette(cmds []PaletteCmd) Palette {
+// NewPalette creates a Palette. Pass nil for cmds to use DefaultCommands.
+func NewPalette(cmds []Command) Palette {
 	if cmds == nil {
-		cmds = defaultCmds
+		cmds = DefaultCommands()
 	}
 	ti := textinput.New()
 	ti.Focus()
+	// Drop the textinput's default "> " prompt — palette.View() draws its
+	// own accent "›" prompt, otherwise the line reads as a double-prompt.
+	ti.Prompt = ""
 	ti.Placeholder = "resource or command..."
 	ti.CharLimit = 64
 	return Palette{cmds: cmds, input: ti}
@@ -55,22 +45,12 @@ func (p Palette) SetInput(s string) Palette {
 }
 
 // Filtered returns commands matching the current input.
-func (p Palette) Filtered() []PaletteCmd {
-	q := strings.ToLower(strings.TrimSpace(p.input.Value()))
-	if q == "" {
-		return p.cmds
-	}
-	var out []PaletteCmd
-	for _, c := range p.cmds {
-		if strings.Contains(c.Name, q) || strings.Contains(c.Alias, q) {
-			out = append(out, c)
-		}
-	}
-	return out
+func (p Palette) Filtered() []Command {
+	return FilterCommands(p.cmds, p.input.Value())
 }
 
 // Selected returns the currently highlighted command, or nil if the list is empty.
-func (p Palette) Selected() *PaletteCmd {
+func (p Palette) Selected() *Command {
 	f := p.Filtered()
 	if len(f) == 0 || p.selected >= len(f) {
 		return nil
@@ -116,8 +96,8 @@ func (p Palette) Update(msg tea.Msg) (Palette, tea.Cmd) {
 func (p Palette) View(width int) string {
 	var sb strings.Builder
 
-	// Input line
-	sb.WriteString(theme.Accent.Render(":") + " " + p.input.View() + "\n")
+	// Input line — accent "›" prompt matches the bottom command bar.
+	sb.WriteString(theme.Accent.Render("›") + " " + p.input.View() + "\n")
 	sb.WriteString(theme.Divider(width) + "\n")
 
 	// Command list

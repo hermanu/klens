@@ -1,0 +1,116 @@
+package app_test
+
+import (
+	"bytes"
+	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/exp/teatest"
+	"github.com/hermanu/klens/app"
+)
+
+// teatest drives the model through a real tea.Program so View() output
+// reflects the same composition the user sees, with the rendered focus frame
+// + bottom bar geometry. We only assert on substrings that are styled as a
+// single unit (e.g. "KLENS", "deployments") because lipgloss may break ANSI
+// segments around mid-token styling — substring spans across style
+// boundaries are unstable.
+//
+// All tests skip gracefully when no kubeconfig is reachable, matching the
+// existing app_test pattern. They use a 120x40 terminal — wide enough to
+// fit the right details pane (minDetailsAt = 120).
+
+const (
+	uiTestWidth   = 120
+	uiTestHeight  = 40
+	uiTestTimeout = 3 * time.Second
+)
+
+// quitProgram nudges the program into a quit state so WaitFinished returns
+// before its default timeout. ctrl+c is the only key the model treats as an
+// unconditional emergency exit.
+func quitProgram(tm *teatest.TestModel) {
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+}
+
+// waitForOutput polls the program's output stream until `match` returns true
+// or the deadline passes. teatest.WaitFor itself logs a useful failure with
+// the captured output if the condition never holds.
+func waitForOutput(t *testing.T, tm *teatest.TestModel, want string) {
+	t.Helper()
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		return bytes.Contains(b, []byte(want))
+	}, teatest.WithDuration(uiTestTimeout))
+}
+
+func newTestUI(t *testing.T) *teatest.TestModel {
+	t.Helper()
+	m, err := app.New("", "")
+	if err != nil {
+		t.Skip("skipping:", err)
+	}
+	return teatest.NewTestModel(t, m, teatest.WithInitialTermSize(uiTestWidth, uiTestHeight))
+}
+
+// TestUI_DefaultFrame verifies the modern shell composes top bar + frame +
+// bottom command bar on first paint. "K L E N S" (letter-spaced) is the
+// banner literal in ui/layout/topbar.go::klensBanner, so its presence is
+// stable proof the top bar rendered.
+func TestUI_DefaultFrame(t *testing.T) {
+	tm := newTestUI(t)
+	waitForOutput(t, tm, "K L E N S")
+	quitProgram(tm)
+	tm.WaitFinished(t, teatest.WithFinalTimeout(uiTestTimeout))
+}
+
+// TestUI_PaletteOpensWithCtrlP verifies the modal palette renders its prompt
+// placeholder when ctrl+p is pressed. "resource or command..." is the
+// textinput's placeholder set in components.NewPalette. Drives the
+// keystroke before the first WaitFor so the reader doesn't get advanced
+// past the relevant frame.
+func TestUI_PaletteOpensWithCtrlP(t *testing.T) {
+	tm := newTestUI(t)
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlP})
+	waitForOutput(t, tm, "resource or command")
+	quitProgram(tm)
+	tm.WaitFinished(t, teatest.WithFinalTimeout(uiTestTimeout))
+}
+
+// TestUI_CommandModeOnColon verifies that `:` enters the inline ex-mode and
+// the suggestions strip surfaces command names (here "deployments" since
+// it's in the default command list).
+func TestUI_CommandModeOnColon(t *testing.T) {
+	tm := newTestUI(t)
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}})
+	// The suggestions strip lists "deployments" by name in the default
+	// command set; "deployments" survives as a single styled token so a
+	// substring check is stable.
+	waitForOutput(t, tm, "deployments")
+	quitProgram(tm)
+	tm.WaitFinished(t, teatest.WithFinalTimeout(uiTestTimeout))
+}
+
+// TestUI_CommandModeUnknownFlash verifies the flash banner appears when
+// the user runs an unknown command via the inline ex-mode. Drives all the
+// keystrokes before the first WaitFor so the persistent reader sees the
+// flash frame in its accumulated buffer (the banner is short-lived: a Tick
+// clears it after flashTTL = 1.5s, so the assertion has to be patient but
+// not too patient).
+func TestUI_CommandModeUnknownFlash(t *testing.T) {
+	tm := newTestUI(t)
+	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}})
+	tm.Type("zzz")
+	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	// "no command" is the prefix of the flash banner text, set by
+	// updateCommandMode when ExactCommand returns nil and there are no
+	// substring matches.
+	waitForOutput(t, tm, "no command")
+	quitProgram(tm)
+	tm.WaitFinished(t, teatest.WithFinalTimeout(uiTestTimeout))
+}
+
+// (mnemonic absence is covered at the Update-state level in app_test.go;
+// asserting a no-op on the rendered output is fragile because teatest's
+// Output() reader can leave the post-event redraw out of the next WaitFor
+// window when the view didn't actually change.)
