@@ -1,5 +1,11 @@
 # klens
 
+[![CI](https://github.com/hermanu/klens/actions/workflows/ci.yml/badge.svg)](https://github.com/hermanu/klens/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/hermanu/klens?sort=semver)](https://github.com/hermanu/klens/releases/latest)
+[![Go Reference](https://pkg.go.dev/badge/github.com/hermanu/klens.svg)](https://pkg.go.dev/github.com/hermanu/klens)
+[![Go Report Card](https://goreportcard.com/badge/github.com/hermanu/klens)](https://goreportcard.com/report/github.com/hermanu/klens)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A fast, keyboard-driven Kubernetes TUI built for engineers who spend real time in their clusters. Inspired by k9s, rebuilt from scratch with a cleaner UI and first-class secret editing.
 
 ```
@@ -60,7 +66,7 @@ sudo mv klens /usr/local/bin/
 
 ### Go install
 
-Requires Go 1.22+.
+Requires Go 1.26+.
 
 ```bash
 go install github.com/hermanu/klens@latest
@@ -81,11 +87,14 @@ sudo mv klens /usr/local/bin/
 # Use your current kubeconfig context
 klens
 
-# Specify a kubeconfig
+# Specify a kubeconfig (overrides config file and KUBECONFIG env var)
 klens --kubeconfig ~/.kube/staging.yaml
 
 # Start in a specific namespace
 klens --namespace production
+
+# Print version and exit
+klens --version
 ```
 
 ## Keyboard shortcuts

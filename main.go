@@ -25,6 +25,18 @@ var (
 )
 
 func main() {
+	var (
+		kubeconfig  = flag.String("kubeconfig", "", "Path to kubeconfig (overrides config file and KUBECONFIG env var)")
+		namespace   = flag.String("namespace", "", "Default namespace (overrides config file)")
+		showVersion = flag.Bool("version", false, "Print version and exit")
+	)
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("klens %s (commit %s, built %s)\n", version, commit, date)
+		return
+	}
+
 	// Silence klog — client-go's informer and trace packages otherwise dump
 	// "Reflector ListAndWatch (total time: 24s)" traces to stderr at I-level
 	// during slow list operations, which corrupts the Bubble Tea alt-screen.
@@ -46,7 +58,7 @@ func main() {
 		"-v=0",
 	})
 
-	m, err := app.New()
+	m, err := app.New(*kubeconfig, *namespace)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

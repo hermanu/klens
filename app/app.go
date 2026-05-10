@@ -203,16 +203,26 @@ type ClusterInfo struct {
 	KlensVer   string
 }
 
-// New constructs the root model from kubeconfig / config.yaml. Tolerates a
-// missing cluster: returns a Model with `client == nil` and the warning is
-// logged to stderr.
-func New() (Model, error) {
+// New builds the root model. Non-empty overrides take precedence over the
+// config file: kubeconfigOverride replaces cfg.Kubeconfig, namespaceOverride
+// replaces cfg.Namespace. Pass empty strings to fall back to the config.
+// Tolerates a missing cluster: returns a Model with `client == nil` and the
+// warning is logged to stderr — the runtime context picker takes over.
+func New(kubeconfigOverride, namespaceOverride string) (Model, error) {
 	cfg, err := config.Load("")
 	if err != nil {
 		return Model{}, fmt.Errorf("load config: %w", err)
 	}
-	// Empty namespace = list across all namespaces (matches the design's
-	// "ns:all" default). Users override per-cluster via ~/.klens/config.yaml.
+	// CLI-flag overrides take precedence over the persisted config.
+	// Empty strings fall through, leaving cfg.Namespace as either the
+	// persisted value or "" (= list across all namespaces, matching
+	// the design's "ns:all" default).
+	if kubeconfigOverride != "" {
+		cfg.Kubeconfig = kubeconfigOverride
+	}
+	if namespaceOverride != "" {
+		cfg.Namespace = namespaceOverride
+	}
 	ns := cfg.Namespace
 
 	client, clientErr := k8sclient.NewClient(cfg.Kubeconfig)
