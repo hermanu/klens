@@ -11,7 +11,7 @@ import (
 // TestModel_PaletteToggle verifies the modal palette opens with ctrl+p and
 // closes with esc. The test skips gracefully when no kubeconfig is available.
 func TestModel_PaletteToggle(t *testing.T) {
-	m, err := app.New()
+	m, err := app.New("", "")
 	if err != nil {
 		t.Skip("skipping: could not create model:", err)
 	}
@@ -41,7 +41,7 @@ func TestModel_PaletteToggle(t *testing.T) {
 
 // TestModel_QuitKey verifies q returns a Quit command.
 func TestModel_QuitKey(t *testing.T) {
-	m, err := app.New()
+	m, err := app.New("", "")
 	if err != nil {
 		t.Skip("skipping:", err)
 	}
@@ -58,7 +58,7 @@ func TestModel_QuitKey(t *testing.T) {
 // TestModel_ColonEntersCommandMode verifies that `:` opens the inline ex-mode
 // (separate from the modal palette which now lives on ctrl+p).
 func TestModel_ColonEntersCommandMode(t *testing.T) {
-	m, err := app.New()
+	m, err := app.New("", "")
 	if err != nil {
 		t.Skip("skipping:", err)
 	}
@@ -82,7 +82,7 @@ func TestModel_ColonEntersCommandMode(t *testing.T) {
 // ex-mode without a matching command surfaces a flash error rather than
 // silently dismissing.
 func TestModel_CommandModeUnknownFlashes(t *testing.T) {
-	m, err := app.New()
+	m, err := app.New("", "")
 	if err != nil {
 		t.Skip("skipping:", err)
 	}
@@ -108,7 +108,7 @@ func TestModel_CommandModeUnknownFlashes(t *testing.T) {
 // TestModel_PerViewFilterPersistsAcrossLogs verifies the regression fix: a
 // filter set on pods is preserved when the user opens logs and esc-pops back.
 func TestModel_PerViewFilterPersistsAcrossLogs(t *testing.T) {
-	m, err := app.New()
+	m, err := app.New("", "")
 	if err != nil {
 		t.Skip("skipping:", err)
 	}

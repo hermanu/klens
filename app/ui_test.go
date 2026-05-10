@@ -46,7 +46,7 @@ func waitForOutput(t *testing.T, tm *teatest.TestModel, want string) {
 
 func newTestUI(t *testing.T) *teatest.TestModel {
 	t.Helper()
-	m, err := app.New()
+	m, err := app.New("", "")
 	if err != nil {
 		t.Skip("skipping:", err)
 	}
