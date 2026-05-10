@@ -9,12 +9,16 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// Client bundles the typed and dynamic Kubernetes API clients with the REST
+// config used to build them.
 type Client struct {
 	Kube    kubernetes.Interface
 	Dynamic dynamic.Interface
 	Config  *rest.Config
 }
 
+// NewClient builds a Client from the default kubeconfig. kubeconfigPath overrides
+// KUBECONFIG and the default discovery path; an empty string uses the default.
 func NewClient(kubeconfigPath string) (*Client, error) {
 	return NewClientForContext(kubeconfigPath, "")
 }
@@ -53,7 +57,7 @@ func NewClientForContext(kubeconfigPath, contextName string) (*Client, error) {
 // Contexts returns all available kubeconfig contexts (sorted) plus the
 // current-context name. Returns an empty slice + empty current with no error
 // if kubeconfig is loadable but has no contexts at all.
-func Contexts() ([]string, string, error) {
+func Contexts() (contexts []string, current string, _ error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	raw, err := rules.Load()
 	if err != nil {

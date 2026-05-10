@@ -14,12 +14,12 @@ import (
 
 var serviceCols = []components.Column{
 	{Header: "NAMESPACE", Width: 14},
-	{Header: "NAME", Width: 36, Flex: true},
+	{Header: colName, Width: 36, Flex: true},
 	{Header: "TYPE", Width: 14},
 	{Header: "CLUSTER-IP", Width: 16},
 	{Header: "EXTERNAL-IP", Width: 18},
 	{Header: "PORTS", Width: 22},
-	{Header: "AGE", Width: 6, Align: components.AlignRight},
+	{Header: colAge, Width: 6, Align: components.AlignRight},
 }
 
 // ServicesView lists services and supports `l` to fan out a multi-pod log
@@ -61,6 +61,8 @@ type servicePodsResolvedMsg struct {
 	err       error
 }
 
+// Update routes tea.Msg through the services view, handling watcher events
+// and log fan-out for selector-matched pods.
 func (v ServicesView) Update(msg tea.Msg) (ServicesView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case k8s.ServicesUpdatedMsg:
@@ -104,7 +106,7 @@ func (v ServicesView) Update(msg tea.Msg) (ServicesView, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "j", "down":
+		case "j", keyDown:
 			v.table = v.table.MoveDown()
 		case "k", "up":
 			v.table = v.table.MoveUp()
@@ -135,7 +137,7 @@ func (v ServicesView) Update(msg tea.Msg) (ServicesView, tea.Cmd) {
 					err:       err,
 				}
 			}
-		case "enter":
+		case keyEnter:
 			// Drill-down to pods filtered by service name — services
 			// typically share a prefix with the pods they front.
 			idx := v.table.SelectedIndex()
@@ -174,19 +176,19 @@ func (v ServicesView) Chips() []layout.FilterChip {
 // the service selector). yaml/delete remain Soon entries.
 func (v ServicesView) KeyHints() []layout.KeyHint {
 	return []layout.KeyHint{
-		{Key: "↵", Label: "pods"},
-		{Key: "l", Label: "logs"},
-		{Key: "/", Label: "filter"},
+		{Key: "↵", Label: labelPods},
+		{Key: "l", Label: labelLogs},
+		{Key: "/", Label: labelFilter},
 	}
 }
 
 // KeyMap implements views.KeyMap and powers the `?` help overlay.
 func (v ServicesView) KeyMap() []components.KeySpec {
 	return []components.KeySpec{
-		{Key: "↵", Label: "pods"},
-		{Key: "l", Label: "logs"},
-		{Key: "/", Label: "filter"},
-		{Key: "y", Label: "yaml", Soon: true},
+		{Key: "↵", Label: labelPods},
+		{Key: "l", Label: labelLogs},
+		{Key: "/", Label: labelFilter},
+		{Key: "y", Label: labelYAML, Soon: true},
 		{Key: "d", Label: "delete", Soon: true},
 	}
 }
@@ -238,7 +240,7 @@ func (v ServicesView) focusKVs() []layout.KV {
 	if sel := joinSelector(s.Selector); sel != "" {
 		kvs = append(kvs, layout.KV{Key: "selector", Value: truncSelector(sel)})
 	}
-	kvs = append(kvs, layout.KV{Key: "age", Value: fmtAge(s.Age)})
+	kvs = append(kvs, layout.KV{Key: kvAge, Value: fmtAge(s.Age)})
 	return kvs
 }
 

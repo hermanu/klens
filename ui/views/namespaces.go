@@ -15,11 +15,13 @@ import (
 )
 
 var namespaceCols = []components.Column{
-	{Header: "NAME", Width: 44, Flex: true},
+	{Header: colName, Width: 44, Flex: true},
 	{Header: "STATUS", Width: 14},
-	{Header: "AGE", Width: 6, Align: components.AlignRight},
+	{Header: colAge, Width: 6, Align: components.AlignRight},
 }
 
+// NamespacesView lists Kubernetes namespaces and supports drilling into pods
+// scoped to the selected namespace.
 type NamespacesView struct {
 	svc        port.NamespaceService
 	namespaces []resources.NamespaceItem
@@ -28,6 +30,7 @@ type NamespacesView struct {
 	err        error
 }
 
+// NewNamespacesView creates a NamespacesView wired to svc.
 func NewNamespacesView(svc port.NamespaceService) NamespacesView {
 	return NamespacesView{
 		svc:   svc,
@@ -41,6 +44,7 @@ type namespacesListedMsg struct {
 	err   error
 }
 
+// Update routes tea.Msg through the namespaces view.
 func (v NamespacesView) Update(msg tea.Msg) (NamespacesView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case k8s.NamespacesUpdatedMsg:
@@ -65,7 +69,7 @@ func (v NamespacesView) Update(msg tea.Msg) (NamespacesView, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "j", "down":
+		case "j", keyDown:
 			v.table = v.table.MoveDown()
 		case "k", "up":
 			v.table = v.table.MoveUp()
@@ -73,7 +77,7 @@ func (v NamespacesView) Update(msg tea.Msg) (NamespacesView, tea.Cmd) {
 			v.table = v.table.MoveTop()
 		case "G":
 			v.table = v.table.MoveBottom()
-		case "enter":
+		case keyEnter:
 			// k9s-style drill-down: switch to pods filtered by this namespace.
 			if n := v.selectedNamespace(); n != nil {
 				name := n.Name
@@ -127,7 +131,7 @@ func (v NamespacesView) Chips() []layout.FilterChip {
 func (v NamespacesView) KeyHints() []layout.KeyHint {
 	return []layout.KeyHint{
 		{Key: "↵", Label: "select"},
-		{Key: "/", Label: "filter"},
+		{Key: "/", Label: labelFilter},
 	}
 }
 
@@ -135,8 +139,8 @@ func (v NamespacesView) KeyHints() []layout.KeyHint {
 func (v NamespacesView) KeyMap() []components.KeySpec {
 	return []components.KeySpec{
 		{Key: "↵", Label: "select"},
-		{Key: "/", Label: "filter"},
-		{Key: "y", Label: "yaml", Soon: true},
+		{Key: "/", Label: labelFilter},
+		{Key: "y", Label: labelYAML, Soon: true},
 		{Key: "d", Label: "delete", Soon: true},
 	}
 }
@@ -177,7 +181,7 @@ func (v NamespacesView) focusKVs() []layout.KV {
 	if labels := topLabels(n.Labels, 5); labels != "" {
 		kvs = append(kvs, layout.KV{Key: "labels", Value: labels})
 	}
-	kvs = append(kvs, layout.KV{Key: "age", Value: fmtAge(n.Age)})
+	kvs = append(kvs, layout.KV{Key: kvAge, Value: fmtAge(n.Age)})
 	return kvs
 }
 
@@ -199,7 +203,7 @@ func (v NamespacesView) visibleNamespaces() []resources.NamespaceItem {
 
 // topLabels renders the top-N labels from a map sorted alphabetically as
 // `k=v,k=v`. Returns "" for an empty map so the caller can omit the row.
-func topLabels(labels map[string]string, max int) string {
+func topLabels(labels map[string]string, limit int) string {
 	if len(labels) == 0 {
 		return ""
 	}
@@ -208,8 +212,8 @@ func topLabels(labels map[string]string, max int) string {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	if len(keys) > max {
-		keys = keys[:max]
+	if len(keys) > limit {
+		keys = keys[:limit]
 	}
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {

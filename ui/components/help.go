@@ -56,7 +56,8 @@ func HelpBody(viewTitle string, specs []KeySpec) string {
 // Help renders the help modal centered on a blank canvas (legacy form,
 // kept for the existing test). Prefer `HelpBody` + Overlay for live use.
 func Help(width, height int, viewTitle string, specs []KeySpec) string {
-	return lipgloss.Place(width, height,
+	return lipgloss.Place(
+		width, height,
 		lipgloss.Center, lipgloss.Center,
 		HelpBody(viewTitle, specs),
 	)

@@ -18,10 +18,12 @@ type NodeSvc struct {
 	client kubernetes.Interface
 }
 
+// NewNodeSvc wraps client as a NodeSvc.
 func NewNodeSvc(client kubernetes.Interface) *NodeSvc {
 	return &NodeSvc{client: client}
 }
 
+// ListNodes returns all nodes in the cluster.
 func (s *NodeSvc) ListNodes(ctx context.Context) ([]NodeItem, error) {
 	list, err := s.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {

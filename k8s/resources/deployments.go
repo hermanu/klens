@@ -14,10 +14,12 @@ type DeploymentSvc struct {
 	client kubernetes.Interface
 }
 
+// NewDeploymentSvc wraps client as a DeploymentSvc.
 func NewDeploymentSvc(client kubernetes.Interface) *DeploymentSvc {
 	return &DeploymentSvc{client: client}
 }
 
+// ListDeployments returns all deployments in namespace. An empty namespace lists across all namespaces.
 func (s *DeploymentSvc) ListDeployments(ctx context.Context, namespace string) ([]DeploymentItem, error) {
 	list, err := s.client.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {

@@ -25,7 +25,7 @@ type KV struct {
 // current value, and the last N samples (rendered as a sparkline).
 type MetricSeries struct {
 	Label   string
-	Value   string  // human-rendered current value, e.g. "142m" or "412M"
+	Value   string // human-rendered current value, e.g. "142m" or "412M"
 	Samples []float64
 	// Color is the sparkline color; if empty the renderer picks an accent default.
 	Color string

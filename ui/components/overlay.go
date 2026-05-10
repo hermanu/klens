@@ -41,7 +41,7 @@ func Overlay(base, top string, col, row int) string {
 		// Pad the base line to at least col+modalW cells so left/right slicing
 		// is well-defined when the modal extends past the line's content.
 		if baseW < col+modalW {
-			baseLine = baseLine + strings.Repeat(" ", col+modalW-baseW)
+			baseLine += strings.Repeat(" ", col+modalW-baseW)
 		}
 
 		left := ansi.Truncate(baseLine, col, "")
@@ -50,7 +50,7 @@ func Overlay(base, top string, col, row int) string {
 		// Pad the topLine to modalW so a shorter modal row still occupies the
 		// full reserved width — otherwise the right slice would shift left.
 		if w := lipgloss.Width(topLine); w < modalW {
-			topLine = topLine + strings.Repeat(" ", modalW-w)
+			topLine += strings.Repeat(" ", modalW-w)
 		}
 		baseLines[bi] = left + topLine + right
 	}

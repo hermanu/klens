@@ -12,20 +12,35 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-// Update messages — sent to the tea.Program when resources change in the cluster.
-// Each view listens for its own message type and re-fetches via its service.
-type (
-	PodsUpdatedMsg        struct{}
-	DeploymentsUpdatedMsg struct{}
-	ServicesUpdatedMsg    struct{}
-	SecretsUpdatedMsg     struct{}
-	ConfigMapsUpdatedMsg  struct{}
-	NamespacesUpdatedMsg  struct{}
-	NodesUpdatedMsg       struct{}
-	PVCsUpdatedMsg        struct{}
-	EventsUpdatedMsg      struct{}
-	CronJobsUpdatedMsg    struct{}
-)
+// PodsUpdatedMsg signals that the pods resource changed; the view re-fetches via its service.
+type PodsUpdatedMsg struct{}
+
+// DeploymentsUpdatedMsg signals that the deployments resource changed; see PodsUpdatedMsg.
+type DeploymentsUpdatedMsg struct{}
+
+// ServicesUpdatedMsg signals that the services resource changed; see PodsUpdatedMsg.
+type ServicesUpdatedMsg struct{}
+
+// SecretsUpdatedMsg signals that the secrets resource changed; see PodsUpdatedMsg.
+type SecretsUpdatedMsg struct{}
+
+// ConfigMapsUpdatedMsg signals that the configmaps resource changed; see PodsUpdatedMsg.
+type ConfigMapsUpdatedMsg struct{}
+
+// NamespacesUpdatedMsg signals that the namespaces resource changed; see PodsUpdatedMsg.
+type NamespacesUpdatedMsg struct{}
+
+// NodesUpdatedMsg signals that the nodes resource changed; see PodsUpdatedMsg.
+type NodesUpdatedMsg struct{}
+
+// PVCsUpdatedMsg signals that the PersistentVolumeClaims resource changed; see PodsUpdatedMsg.
+type PVCsUpdatedMsg struct{}
+
+// EventsUpdatedMsg signals that the events resource changed; see PodsUpdatedMsg.
+type EventsUpdatedMsg struct{}
+
+// CronJobsUpdatedMsg signals that the cronjobs resource changed; see PodsUpdatedMsg.
+type CronJobsUpdatedMsg struct{}
 
 // MetricsTickMsg fires every 5 seconds with one batched batch of pod samples.
 // Views consume it to advance their per-pod sparkline ring buffers.
@@ -48,10 +63,10 @@ type PulseTickMsg struct {
 // to a Bubble Tea program as tea.Msg values. It also runs the metrics ticker,
 // the pulse ticker, and the optional pod-log stream for the focused pod.
 type Watcher struct {
-	factory informers.SharedInformerFactory
-	stopCh  chan struct{}
+	factory  informers.SharedInformerFactory
+	stopCh   chan struct{}
 	stopOnce sync.Once // guards Stop() so a defer + an explicit context-switch teardown don't double-close stopCh.
-	program *tea.Program
+	program  *tea.Program
 
 	metrics port.MetricsService
 	logs    port.LogService

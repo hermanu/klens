@@ -114,6 +114,8 @@ func (v LogsView) WithFocus(namespace string, pods []string, title string) LogsV
 	return v
 }
 
+// Update routes tea.Msg through the logs view, handling scroll, search, and
+// lookback-window changes.
 func (v LogsView) Update(msg tea.Msg) (LogsView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case k8s.LogLineMsg:
@@ -138,7 +140,7 @@ func (v LogsView) Update(msg tea.Msg) (LogsView, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "j", "down":
+		case "j", keyDown:
 			v.offset++
 			v.follow = false
 		case "k", "up":
@@ -165,7 +167,7 @@ func (v LogsView) Update(msg tea.Msg) (LogsView, tea.Cmd) {
 			// reading multi-line stack traces or long JSON blobs.
 			v.wrap = !v.wrap
 			return v, nil
-		case "esc":
+		case keyEsc:
 			return v, func() tea.Msg { return BackToPodsMsg{} }
 		}
 		// Range shortcuts 0-5: change the lookback window. We restart the
@@ -174,14 +176,15 @@ func (v LogsView) Update(msg tea.Msg) (LogsView, tea.Cmd) {
 		// preserved across re-streams so deployment/service tails don't
 		// collapse to a single pod when the window changes.
 		for _, p := range rangePresets {
-			if msg.String() == p.key {
-				v.since = p.seconds
-				v.lines = nil
-				v.follow = true
-				ns, pods, sec := v.namespace, v.activePods(), p.seconds
-				return v, func() tea.Msg {
-					return LogTailRequestMsg{Namespace: ns, Pods: pods, SinceSeconds: sec}
-				}
+			if msg.String() != p.key {
+				continue
+			}
+			v.since = p.seconds
+			v.lines = nil
+			v.follow = true
+			ns, pods, sec := v.namespace, v.activePods(), p.seconds
+			return v, func() tea.Msg {
+				return LogTailRequestMsg{Namespace: ns, Pods: pods, SinceSeconds: sec}
 			}
 		}
 	}
@@ -189,7 +192,7 @@ func (v LogsView) Update(msg tea.Msg) (LogsView, tea.Cmd) {
 }
 
 // Title implements views.View.
-func (v LogsView) Title() string { return "logs" }
+func (v LogsView) Title() string { return labelLogs }
 
 // Filter implements views.Filterable. Logs filters lines (not rows), but the
 // shell treats Filterable uniformly — the bottom command-bar mirrors this
@@ -209,7 +212,7 @@ func (v LogsView) Count() (visible, total int) {
 func (v LogsView) Chips() []layout.FilterChip {
 	scopeKey := "pod"
 	if len(v.podSet) > 1 {
-		scopeKey = "pods"
+		scopeKey = labelPods
 	}
 	value := v.title
 	if value == "" && len(v.podSet) == 1 {
@@ -260,8 +263,8 @@ func (v LogsView) KeyHints() []layout.KeyHint {
 		{Key: "j/k", Label: "scroll"},
 		{Key: "G", Label: "tail"},
 		{Key: "w", Label: wrapLabel},
-		{Key: "/", Label: "filter"},
-		{Key: "esc", Label: "back"},
+		{Key: "/", Label: labelFilter},
+		{Key: keyEsc, Label: "back"},
 	}
 }
 

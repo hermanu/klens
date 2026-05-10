@@ -3,11 +3,56 @@ version: "2"
 linters:
   default: standard
   enable:
+    # existing
     - misspell
     - unconvert
     - unparam
+    # correctness
+    - durationcheck  # prevents time.Duration(n) * time.Second multiplication bugs
+    - exhaustive     # non-exhaustive switches on viewKind iota and other enums
+    - nilerr         # catches `if err != nil { return nil }` (swallowed errors)
+    - reassign       # prevents accidental reassignment of package-level vars
+    # style & quality
+    - goconst        # repeated string literals (column names, key hints, resource titles)
+    - gocritic       # diagnostic and style checks beyond govet
+    - prealloc       # slice preallocation hints for list operations
+    - revive         # general lint rules; supersedes golint
+    - usetesting     # enforces t.Setenv/t.Chdir/etc. over os equivalents in tests
+
+  settings:
+    govet:
+      enable:
+        - copylocks  # catches sync.Mutex/Once copied by value (Watcher has both)
+
+    exhaustive:
+      default-signifies-exhaustive: true  # a `default:` case satisfies the check
+
+    goconst:
+      min-occurrences: 7
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+      disabled-checks:
+        - paramTypeCombine  # noisy for port interface signatures
+
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - disableStutteringCheck  # port.SvcService is intentional (see CLAUDE.md)
+        - name: unused-parameter
+          disabled: true  # covered by unparam
+
   exclusions:
     rules:
       - path: "_test\\.go"
         linters:
-          - unparam
+          - goconst   # test helpers intentionally repeat literals
+          - reassign  # tests legitimately reassign package vars for isolation
+          - unparam   # existing exclusion
+
+formatters:
+  enable:
+    - gofumpt  # stricter gofmt; run `gofumpt -l -w .` once to reformat existing files

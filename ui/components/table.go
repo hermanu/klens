@@ -22,6 +22,7 @@ type Column struct {
 // Align is the cell alignment mode.
 type Align int
 
+// Alignment values for Align.
 const (
 	AlignLeft Align = iota
 	AlignRight
@@ -43,10 +44,12 @@ type Table struct {
 	offset   int // first visible row, advanced by selection-following scroll
 }
 
+// NewTable creates a Table with the given columns and initial rows.
 func NewTable(cols []Column, rows []Row) Table {
 	return Table{cols: cols, rows: rows}
 }
 
+// SetRows replaces the row data and clamps the selection to the new length.
 func (t Table) SetRows(rows []Row) Table {
 	t.rows = rows
 	if t.selected >= len(rows) && len(rows) > 0 {
@@ -58,12 +61,19 @@ func (t Table) SetRows(rows []Row) Table {
 	return t
 }
 
-func (t Table) SetWidth(w int) Table  { t.width = w; return t }
+// SetWidth sets the terminal width allocated to the table.
+func (t Table) SetWidth(w int) Table { t.width = w; return t }
+
+// SetHeight sets the number of terminal rows allocated to the table.
 func (t Table) SetHeight(h int) Table { t.height = h; return t }
 
+// SelectedIndex returns the zero-based index of the focused row.
 func (t Table) SelectedIndex() int { return t.selected }
-func (t Table) RowCount() int      { return len(t.rows) }
 
+// RowCount returns the total number of rows in the table.
+func (t Table) RowCount() int { return len(t.rows) }
+
+// SelectedRow returns the currently focused Row, or nil if the table is empty.
 func (t Table) SelectedRow() Row {
 	if len(t.rows) == 0 {
 		return nil
@@ -71,6 +81,7 @@ func (t Table) SelectedRow() Row {
 	return t.rows[t.selected]
 }
 
+// MoveDown advances the selection by one row, stopping at the last row.
 func (t Table) MoveDown() Table {
 	if t.selected < len(t.rows)-1 {
 		t.selected++
@@ -78,6 +89,7 @@ func (t Table) MoveDown() Table {
 	return t
 }
 
+// MoveUp moves the selection up by one row, stopping at the first row.
 func (t Table) MoveUp() Table {
 	if t.selected > 0 {
 		t.selected--
@@ -85,8 +97,10 @@ func (t Table) MoveUp() Table {
 	return t
 }
 
+// MoveTop moves the selection to the first row.
 func (t Table) MoveTop() Table { t.selected = 0; return t }
 
+// MoveBottom moves the selection to the last row.
 func (t Table) MoveBottom() Table {
 	if len(t.rows) > 0 {
 		t.selected = len(t.rows) - 1
@@ -94,6 +108,7 @@ func (t Table) MoveBottom() Table {
 	return t
 }
 
+// View renders the table to a string, including the header row and selection cursor.
 func (t Table) View() string {
 	var sb strings.Builder
 
@@ -279,11 +294,10 @@ func (t Table) renderRow(row Row, sel bool, colWidths []int) string {
 			val = row[j]
 		}
 		// Selection cursor on the first cell of the selected row.
-		if sel && j == 0 {
+		switch {
+		case sel && j == 0:
 			val = "› " + val
-		} else if sel && j != 0 {
-			// nothing
-		} else if j == 0 {
+		case j == 0:
 			val = "  " + val
 		}
 

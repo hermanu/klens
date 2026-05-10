@@ -16,11 +16,11 @@ import (
 
 var deploymentCols = []components.Column{
 	{Header: "NAMESPACE", Width: 14},
-	{Header: "NAME", Width: 36, Flex: true},
+	{Header: colName, Width: 36, Flex: true},
 	{Header: "READY", Width: 8, Align: components.AlignRight},
 	{Header: "UP-TO-DATE", Width: 12, Align: components.AlignRight},
 	{Header: "AVAILABLE", Width: 10, Align: components.AlignRight},
-	{Header: "AGE", Width: 6, Align: components.AlignRight},
+	{Header: colAge, Width: 6, Align: components.AlignRight},
 }
 
 // DeploymentsView lists deployments and supports `l` to fan out a multi-pod
@@ -64,6 +64,8 @@ type deploymentPodsResolvedMsg struct {
 	err       error
 }
 
+// Update routes tea.Msg through the deployments view, handling watcher events,
+// log fan-out, and drill-down requests.
 func (v DeploymentsView) Update(msg tea.Msg) (DeploymentsView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case k8s.DeploymentsUpdatedMsg:
@@ -110,7 +112,7 @@ func (v DeploymentsView) Update(msg tea.Msg) (DeploymentsView, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "j", "down":
+		case "j", keyDown:
 			v.table = v.table.MoveDown()
 		case "k", "up":
 			v.table = v.table.MoveUp()
@@ -143,7 +145,7 @@ func (v DeploymentsView) Update(msg tea.Msg) (DeploymentsView, tea.Cmd) {
 					err:       err,
 				}
 			}
-		case "enter":
+		case keyEnter:
 			// k9s-style drill-down: switch to pods filtered by this
 			// deployment's name. Pod names usually start with the deployment
 			// name, so a substring filter finds the workload pods reliably.
@@ -184,19 +186,19 @@ func (v DeploymentsView) Chips() []layout.FilterChip {
 // yaml/delete stay as Soon entries in the help overlay.
 func (v DeploymentsView) KeyHints() []layout.KeyHint {
 	return []layout.KeyHint{
-		{Key: "↵", Label: "pods"},
-		{Key: "l", Label: "logs"},
-		{Key: "/", Label: "filter"},
+		{Key: "↵", Label: labelPods},
+		{Key: "l", Label: labelLogs},
+		{Key: "/", Label: labelFilter},
 	}
 }
 
 // KeyMap implements views.KeyMap and powers the `?` help overlay.
 func (v DeploymentsView) KeyMap() []components.KeySpec {
 	return []components.KeySpec{
-		{Key: "↵", Label: "pods"},
-		{Key: "l", Label: "logs"},
-		{Key: "/", Label: "filter"},
-		{Key: "y", Label: "yaml", Soon: true},
+		{Key: "↵", Label: labelPods},
+		{Key: "l", Label: labelLogs},
+		{Key: "/", Label: labelFilter},
+		{Key: "y", Label: labelYAML, Soon: true},
 		{Key: "d", Label: "delete", Soon: true},
 	}
 }
@@ -251,7 +253,7 @@ func (v DeploymentsView) focusKVs() []layout.KV {
 	if sel := joinSelector(d.Selector); sel != "" {
 		kvs = append(kvs, layout.KV{Key: "selector", Value: truncSelector(sel)})
 	}
-	kvs = append(kvs, layout.KV{Key: "age", Value: fmtAge(d.Age)})
+	kvs = append(kvs, layout.KV{Key: kvAge, Value: fmtAge(d.Age)})
 	return kvs
 }
 
@@ -293,11 +295,11 @@ func joinSelector(sel map[string]string) string {
 // truncSelector clamps the selector preview to 40 cols so a noisy multi-label
 // deployment doesn't blow out the SPEC pane width.
 func truncSelector(s string) string {
-	const max = 40
-	if len(s) <= max {
+	const maxSelectorLen = 40
+	if len(s) <= maxSelectorLen {
 		return s
 	}
-	return s[:max-1] + "…"
+	return s[:maxSelectorLen-1] + "…"
 }
 
 // visibleDeployments returns the deployments slice after applying v.filter

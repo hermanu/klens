@@ -14,15 +14,16 @@ import (
 
 var pvcCols = []components.Column{
 	{Header: "NAMESPACE", Width: 14},
-	{Header: "NAME", Width: 32, Flex: true},
+	{Header: colName, Width: 32, Flex: true},
 	{Header: "STATUS", Width: 12},
 	{Header: "VOLUME", Width: 24},
 	{Header: "CAPACITY", Width: 10, Align: components.AlignRight},
 	{Header: "ACCESS MODES", Width: 16},
 	{Header: "STORAGECLASS", Width: 16},
-	{Header: "AGE", Width: 6, Align: components.AlignRight},
+	{Header: colAge, Width: 6, Align: components.AlignRight},
 }
 
+// PVCsView lists PersistentVolumeClaims in the current namespace.
 type PVCsView struct {
 	svc       port.PVCService
 	namespace string
@@ -32,6 +33,7 @@ type PVCsView struct {
 	err       error
 }
 
+// NewPVCsView creates a PVCsView wired to svc and scoped to namespace.
 func NewPVCsView(svc port.PVCService, namespace string) PVCsView {
 	return PVCsView{
 		svc:       svc,
@@ -46,6 +48,7 @@ type pvcsListedMsg struct {
 	err   error
 }
 
+// Update routes tea.Msg through the PVCs view.
 func (v PVCsView) Update(msg tea.Msg) (PVCsView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case k8s.PVCsUpdatedMsg:
@@ -77,7 +80,7 @@ func (v PVCsView) Update(msg tea.Msg) (PVCsView, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "j", "down":
+		case "j", keyDown:
 			v.table = v.table.MoveDown()
 		case "k", "up":
 			v.table = v.table.MoveUp()
@@ -85,7 +88,7 @@ func (v PVCsView) Update(msg tea.Msg) (PVCsView, tea.Cmd) {
 			v.table = v.table.MoveTop()
 		case "G":
 			v.table = v.table.MoveBottom()
-		case "enter":
+		case keyEnter:
 			// Open a full-screen generic describe of the focused PVC. Reuses
 			// the SPEC block for the body — same shape any future non-pod
 			// describe will land on.
@@ -150,7 +153,7 @@ func (v PVCsView) Chips() []layout.FilterChip {
 func (v PVCsView) KeyHints() []layout.KeyHint {
 	return []layout.KeyHint{
 		{Key: "↵", Label: "describe"},
-		{Key: "/", Label: "filter"},
+		{Key: "/", Label: labelFilter},
 	}
 }
 
@@ -158,8 +161,8 @@ func (v PVCsView) KeyHints() []layout.KeyHint {
 func (v PVCsView) KeyMap() []components.KeySpec {
 	return []components.KeySpec{
 		{Key: "↵", Label: "describe"},
-		{Key: "/", Label: "filter"},
-		{Key: "y", Label: "yaml", Soon: true},
+		{Key: "/", Label: labelFilter},
+		{Key: "y", Label: labelYAML, Soon: true},
 		{Key: "d", Label: "delete", Soon: true},
 	}
 }
@@ -205,7 +208,7 @@ func (v PVCsView) focusKVs() []layout.KV {
 		{Key: "capacity", Value: fallbackOr(p.Capacity)},
 		{Key: "access modes", Value: fallbackOr(p.AccessModes)},
 		{Key: "storage class", Value: fallbackOr(p.StorageClass)},
-		{Key: "age", Value: fmtAge(p.Age)},
+		{Key: kvAge, Value: fmtAge(p.Age)},
 	}
 }
 

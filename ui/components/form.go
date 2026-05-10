@@ -25,6 +25,7 @@ import (
 //	                  `d` discard & exit, `esc` cancel back to ModeNav.
 type FormMode int
 
+// Mode values for FormMode.
 const (
 	ModeNav FormMode = iota
 	ModeEdit

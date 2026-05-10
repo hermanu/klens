@@ -16,10 +16,12 @@ type PodSvc struct {
 	client kubernetes.Interface
 }
 
+// NewPodSvc creates a PodSvc backed by the given Kubernetes client.
 func NewPodSvc(client kubernetes.Interface) *PodSvc {
 	return &PodSvc{client: client}
 }
 
+// ListPods returns all pods in namespace as lightweight PodItem summaries.
 func (s *PodSvc) ListPods(ctx context.Context, namespace string) ([]PodItem, error) {
 	list, err := s.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -32,6 +34,7 @@ func (s *PodSvc) ListPods(ctx context.Context, namespace string) ([]PodItem, err
 	return items, nil
 }
 
+// DeletePod deletes the named pod with default (immediate) delete options.
 func (s *PodSvc) DeletePod(ctx context.Context, namespace, name string) error {
 	return s.client.CoreV1().Pods(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 }

@@ -49,7 +49,8 @@ func ContextPicker(width, height int, contexts []string, selected int, errMsg st
 		Padding(1, 2).
 		Render(sb.String())
 
-	return lipgloss.Place(width, height,
+	return lipgloss.Place(
+		width, height,
 		lipgloss.Center, lipgloss.Center,
 		body,
 	)

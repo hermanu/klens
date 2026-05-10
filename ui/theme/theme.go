@@ -13,12 +13,12 @@ var (
 	// border colors instead.
 	ColorPanel  = lipgloss.Color("#06080b")
 	ColorRaised = lipgloss.Color("#0b0d10")
-	ColorHover       = lipgloss.Color("#15151a")
+	ColorHover  = lipgloss.Color("#15151a")
 	// Selection and alt-row backgrounds equal the body background — separation
 	// is by accent left bar + cursor glyph, not by row tint, so the table
 	// reads as fully black instead of gray-striped.
-	ColorSel    = lipgloss.Color("#06080b")
-	ColorRowAlt = lipgloss.Color("#06080b")
+	ColorSel         = lipgloss.Color("#06080b")
+	ColorRowAlt      = lipgloss.Color("#06080b")
 	ColorBorder      = lipgloss.Color("#1f2a3a")
 	ColorBorderFaint = lipgloss.Color("#11171f")
 	ColorFG          = lipgloss.Color("#e5e7eb")
@@ -151,6 +151,7 @@ var StatusColor = func() map[string]lipgloss.Color {
 	return m
 }()
 
+// StatusColorFor returns the accent color associated with the given k8s phase string.
 func StatusColorFor(phase string) lipgloss.Color {
 	return StatusStyleFor(phase).Dot
 }
@@ -167,6 +168,7 @@ var StatusGlyph = map[string]string{
 	"Completed":        "●",
 }
 
+// GlyphFor returns the single-character status glyph for phase, falling back to ● for unknown phases.
 func GlyphFor(phase string) string {
 	if g, ok := StatusGlyph[phase]; ok {
 		return g
@@ -189,7 +191,7 @@ var (
 		Foreground(ColorFG)
 
 	Selected = lipgloss.NewStyle().
-		Foreground(ColorFG)
+			Foreground(ColorFG)
 
 	Dim = lipgloss.NewStyle().
 		Foreground(ColorMuted)
@@ -228,16 +230,16 @@ var (
 	// Filter chip (active/strong) — accent foreground; still no background
 	// so the chip strip stays visually flat.
 	ChipStrong = lipgloss.NewStyle().
-		Foreground(ColorAccent).
-		PaddingLeft(1).PaddingRight(1)
+			Foreground(ColorAccent).
+			PaddingLeft(1).PaddingRight(1)
 
 	// Section header — small, faint, uppercased outside this style.
 	SectionLabel = lipgloss.NewStyle().
-		Foreground(ColorMuted)
+			Foreground(ColorMuted)
 
 	// Table column header.
 	ColHeader = lipgloss.NewStyle().
-		Foreground(ColorMuted)
+			Foreground(ColorMuted)
 )
 
 // Divider renders a horizontal separator using the border color.

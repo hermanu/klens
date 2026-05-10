@@ -149,4 +149,3 @@ func highlightMatch(text, filter string) string {
 	}
 	return sb.String()
 }
-

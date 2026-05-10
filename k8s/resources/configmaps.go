@@ -14,10 +14,12 @@ type ConfigMapSvc struct {
 	client kubernetes.Interface
 }
 
+// NewConfigMapSvc creates a ConfigMapSvc backed by the given Kubernetes client.
 func NewConfigMapSvc(client kubernetes.Interface) *ConfigMapSvc {
 	return &ConfigMapSvc{client: client}
 }
 
+// ListConfigMaps returns all configmaps in namespace. Data is omitted for cost; use GetConfigMap to fetch values.
 func (s *ConfigMapSvc) ListConfigMaps(ctx context.Context, namespace string) ([]ConfigMapItem, error) {
 	list, err := s.client.CoreV1().ConfigMaps(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -44,6 +46,7 @@ func (s *ConfigMapSvc) ListConfigMaps(ctx context.Context, namespace string) ([]
 	return items, nil
 }
 
+// GetConfigMap fetches a single configmap including its full Data map.
 func (s *ConfigMapSvc) GetConfigMap(ctx context.Context, namespace, name string) (ConfigMapItem, error) {
 	cm, err := s.client.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -58,6 +61,8 @@ func (s *ConfigMapSvc) GetConfigMap(ctx context.Context, namespace, name string)
 	}, nil
 }
 
+// UpdateConfigMap replaces the data of an existing configmap via Get-then-Update
+// so other fields (annotations, labels) survive the write.
 func (s *ConfigMapSvc) UpdateConfigMap(ctx context.Context, namespace, name string, data map[string]string) error {
 	cm, err := s.client.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {

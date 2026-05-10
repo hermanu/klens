@@ -19,6 +19,7 @@ type LogSvc struct {
 	kube kubernetes.Interface
 }
 
+// NewLogSvc wraps kube as a LogSvc.
 func NewLogSvc(kube kubernetes.Interface) LogSvc {
 	return LogSvc{kube: kube}
 }
