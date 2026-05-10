@@ -16,17 +16,18 @@ ctx prod-eu  · v1.30  · ▮ payments  · pods 5         ── K L E N S ─�
 ›payments   api-gateway-7d9f4b8c6-xk2pq    2/2   Running     0     147  ▁▂▃▅▄   3d   ┃ api-gateway-7d9f4b8c6-xk2pq
  payments   worker-5c8b9d7f4-mn3rs         1/1   Running     2      42  ▁▁▂▂▁  12h   ┃ payments · Running · 3d
  payments   worker-5c8b9d7f4-qw7yt         1/1   Running     0      38  ▁▂▁▁▁  12h   ┃
- payments   payment-svc-zp1lm              0/1   CrashLoop  14       0   ─     47m   ┃ LIVE · 60s
+ payments   payment-svc-zp1lm              0/1   CrashLoop  14       0   ─     47m    ┃ LIVE · 60s
  payments   redis-0                        1/1   Running     0      12  ▁▁▁▁▁   7d   ┃ cpu  ▁▂▃▅▄    147m
-                                                                                     ┃ mem  ▃▃▃▄▃    312M
-                                                                                     ┃
-                                                                                     ┃ SPEC
-                                                                                     ┃ namespace  payments
-                                                                                     ┃ node       ip-10-0-1-12
-                                                                                     ┃ ready      2/2
+                                                                                      ┃ mem  ▃▃▃▄▃    312M
+                                                                                      ┃
+                                                                                      ┃ SPEC
+                                                                                      ┃ namespace  payments
+                                                                                      ┃ node       ip-10-0-1-12
+                                                                                      ┃ ready      2/2
 ──────────────────────────────────────────────────────────────────────────────────────────────────
 ›  /type to filter…                                        [↵ describe]  [l logs]  [/ filter]  [?]
 ```
+(this is a representation, pictures and videos comming soon)
 
 ## Why klens?
 
