@@ -48,29 +48,6 @@ type DetailsBlock struct {
 	LogTail  []LogLine
 }
 
-// NavItem is a single resource entry in the horizontal nav strip.
-// Mnemonic is the digit users press to jump to it (1-8); Count is the
-// resource's total. The active item additionally renders the filtered
-// count from NavStripConfig.VisibleCount.
-type NavItem struct {
-	Key      string // matches viewKind by string, e.g. "pods"
-	Label    string // display label, e.g. "Pods"
-	Mnemonic string // single key, e.g. "1"
-	Count    int
-}
-
-// NavRailConfig holds the data the left-side vertical nav rail renders.
-//
-// VisibleCount/TotalCount are the active view's filtered/total counts; they
-// only affect the active item, which shows `V/T` when filtered and just `T`
-// when unfiltered. Inactive items always render their item.Count (total).
-type NavRailConfig struct {
-	Items        []NavItem
-	Current      string // active item Key
-	VisibleCount int
-	TotalCount   int
-}
-
 // TopBarConfig holds the data the top bar renders.
 type TopBarConfig struct {
 	Context    string
