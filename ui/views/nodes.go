@@ -13,7 +13,7 @@ import (
 )
 
 var nodeCols = []components.Column{
-	{Header: "NAME", Width: 36},
+	{Header: "NAME", Width: 36, Flex: true},
 	{Header: "STATUS", Width: 12},
 	{Header: "ROLES", Width: 18},
 	{Header: "VERSION", Width: 16},

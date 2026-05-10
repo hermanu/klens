@@ -26,7 +26,7 @@ const (
 // row[0] (which contains an ANSI-coded NSChip).
 var configMapCols = []components.Column{
 	{Header: "NAMESPACE", Width: 14},
-	{Header: "NAME", Width: 44},
+	{Header: "NAME", Width: 44, Flex: true},
 	{Header: "KEYS", Width: 6, Align: components.AlignRight},
 	{Header: "AGE", Width: 6, Align: components.AlignRight},
 }

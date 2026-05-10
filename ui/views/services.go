@@ -14,7 +14,7 @@ import (
 
 var serviceCols = []components.Column{
 	{Header: "NAMESPACE", Width: 14},
-	{Header: "NAME", Width: 36},
+	{Header: "NAME", Width: 36, Flex: true},
 	{Header: "TYPE", Width: 14},
 	{Header: "CLUSTER-IP", Width: 16},
 	{Header: "EXTERNAL-IP", Width: 18},

@@ -15,7 +15,7 @@ import (
 )
 
 var namespaceCols = []components.Column{
-	{Header: "NAME", Width: 44},
+	{Header: "NAME", Width: 44, Flex: true},
 	{Header: "STATUS", Width: 14},
 	{Header: "AGE", Width: 6, Align: components.AlignRight},
 }
