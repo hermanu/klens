@@ -15,6 +15,11 @@ import (
 // FormMode is the editor's input state. Splitting "navigation" from
 // "field editing" avoids the ambiguity that made the old tab-toggling
 // model confusing — only one mode accepts text at any time.
+//
+// ModeNav is the vim "normal" equivalent: j/k navigate, h/l switch
+// columns, i/a enter edit, : opens the ex-prompt for save/quit.
+// ModeCommand hosts the ":" prompt itself; the textinput in
+// f.commandInput captures the ex line until Enter or Esc.
 type FormMode int
 
 const (
@@ -23,6 +28,7 @@ const (
 	ModeKeyEdit
 	ModeConfirmDiscard
 	ModeConfirmSave
+	ModeCommand
 )
 
 // FormSaveRequestedMsg is emitted when the user confirms a save (second
@@ -57,8 +63,22 @@ type Form struct {
 	diffRemoved int
 	diffChanged int
 
+	// pending stores a single-character prefix waiting for completion
+	// (e.g. "d" before "dd" to delete, "g" before "gg" to jump-top).
+	// Cleared on any key that doesn't complete the sequence.
+	pending string
+
+	// commandInput backs the inline `:` ex-mode prompt — same idea as
+	// vim's command-line. Active only while mode == ModeCommand.
+	commandInput textinput.Model
+
 	width int
 }
+
+// FormQuitRequestedMsg is emitted when the user runs `:q` on a clean
+// form (or `:q!` regardless). The hosting view treats it like an Esc:
+// pop back to the parent view.
+type FormQuitRequestedMsg struct{}
 
 // NewForm creates a Form pre-populated from a decoded secret/configmap
 // Data map. The same map is also stashed as the diff baseline.
@@ -73,10 +93,15 @@ func NewForm(data map[string][]byte) Form {
 	for _, k := range keys {
 		rows = append(rows, newRow(k, string(data[k])))
 	}
+	ci := textinput.New()
+	ci.Prompt = ""
+	ci.Placeholder = "w · q · wq · q!"
+	ci.CharLimit = 16
 	f := Form{
-		rows:     rows,
-		mode:     ModeNav,
-		original: copyData(data),
+		rows:         rows,
+		mode:         ModeNav,
+		original:     copyData(data),
+		commandInput: ci,
 	}
 	f.blurAll()
 	return f
@@ -208,9 +233,10 @@ func (f Form) Data() map[string][]byte {
 	return out
 }
 
-// Update handles input. The mode-machine swallows global keys (^s,
-// esc, ^a, ^d, ^h, arrows) and only forwards keystrokes to the
-// underlying textinput when in ModeKeyEdit/ModeValueEdit.
+// Update handles input. The mode-machine swallows global keys (esc,
+// vim normal-mode bindings, the ":" ex prompt) and only forwards
+// keystrokes to the underlying textinput when in ModeKeyEdit/ModeValueEdit
+// (insert mode) or ModeCommand (the ex prompt).
 func (f Form) Update(msg tea.Msg) (Form, tea.Cmd) {
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -226,52 +252,128 @@ func (f Form) Update(msg tea.Msg) (Form, tea.Cmd) {
 		return f.updateConfirmSave(km)
 	case ModeKeyEdit, ModeValueEdit:
 		return f.updateEditing(km)
+	case ModeCommand:
+		return f.updateCommand(km)
 	default:
 		return f.updateNav(km)
 	}
 }
 
 func (f Form) updateNav(km tea.KeyMsg) (Form, tea.Cmd) {
-	switch km.String() {
-	case "up", "ctrl+p":
+	key := km.String()
+
+	// Multi-key sequences (vim "dd", "gg"). The previous key is stashed
+	// in f.pending; any key that doesn't complete a known sequence
+	// clears the prefix and is processed normally below.
+	if f.pending != "" {
+		prev := f.pending
+		f.pending = ""
+		switch prev + key {
+		case "dd":
+			return f.DeleteSelected(), nil
+		case "gg":
+			f.selected = 0
+			return f, nil
+		}
+		// fall through: treat the new key as a fresh keystroke
+	}
+
+	switch key {
+	// Movement — arrows + vim hjkl. h/l switch between key/value
+	// columns by entering the corresponding edit mode (vim's `i` for
+	// "insert here"). j/k change rows. Capital G jumps to the bottom.
+	case "up", "k", "ctrl+p":
 		if f.selected > 0 {
 			f.selected--
 		}
 		return f, nil
-	case "down", "ctrl+n":
+	case "down", "j", "ctrl+n":
 		if f.selected < len(f.rows)-1 {
 			f.selected++
 		}
 		return f, nil
-	case "right", "enter":
+	case "G":
+		if len(f.rows) > 0 {
+			f.selected = len(f.rows) - 1
+		}
+		return f, nil
+	case "g":
+		// Single 'g' arms the gg sequence — second 'g' jumps to top.
+		f.pending = "g"
+		return f, nil
+
+	// Column focus — h/l mirror left/right. Tab is a vim-foreign but
+	// long-standing alias for "switch to key column".
+	case "right", "l":
 		if len(f.rows) > 0 {
 			f.mode = ModeValueEdit
 			f.blurAll()
 			f.rows[f.selected].value.Focus()
 		}
 		return f, nil
-	case "left", "tab":
+	case "left", "h", "tab":
 		if len(f.rows) > 0 {
 			f.mode = ModeKeyEdit
 			f.blurAll()
 			f.rows[f.selected].key.Focus()
 		}
 		return f, nil
-	case "ctrl+a":
+
+	// Insert mode — vim's i/a both drop into the value field. enter
+	// stays as a friendly synonym so non-vim users aren't stranded.
+	case "i", "a", "enter":
+		if len(f.rows) > 0 {
+			f.mode = ModeValueEdit
+			f.blurAll()
+			f.rows[f.selected].value.Focus()
+		}
+		return f, nil
+	case "I":
+		// vim "I" jumps to the start of the line — here, edit the key.
+		if len(f.rows) > 0 {
+			f.mode = ModeKeyEdit
+			f.blurAll()
+			f.rows[f.selected].key.Focus()
+		}
+		return f, nil
+
+	// Row mutation — vim's `o` opens a new line below; we don't have a
+	// notion of "above" since the rows are sorted, so `O` aliases the
+	// same behaviour. ctrl+a kept as the muscle-memory shortcut.
+	case "o", "O", "ctrl+a":
 		return f.AddRow("", ""), nil
+	case "d":
+		// First half of "dd" — arm the prefix so the next 'd' deletes.
+		f.pending = "d"
+		return f, nil
 	case "ctrl+d":
 		return f.DeleteSelected(), nil
-	case "ctrl+h":
+
+	// Hide toggle — capital H frees lowercase h for navigation. ctrl+h
+	// stays as a fallback but works less reliably across terminals
+	// that swallow it as backspace.
+	case "H", "ctrl+h":
 		if len(f.rows) > 0 {
 			f.rows[f.selected].hide = !f.rows[f.selected].hide
 		}
 		return f, nil
+
+	// Save — ctrl+s remains the single-keystroke save with diff
+	// preview. The vim-equivalent is `:w`, handled in updateCommand.
 	case "ctrl+s":
 		if f.IsDirty() {
 			f.computeDiff()
 			f.mode = ModeConfirmSave
 		}
 		return f, nil
+
+	// Ex-mode entry. Empty input + Esc cancels back to nav.
+	case ":":
+		f.mode = ModeCommand
+		f.commandInput.SetValue("")
+		f.commandInput.Focus()
+		return f, nil
+
 	case "esc":
 		if f.IsDirty() {
 			f.mode = ModeConfirmDiscard
@@ -324,8 +426,10 @@ func (f Form) updateConfirmDiscard(km tea.KeyMsg) (Form, tea.Cmd) {
 
 func (f Form) updateConfirmSave(km tea.KeyMsg) (Form, tea.Cmd) {
 	switch km.String() {
-	case "ctrl+s":
-		// Second ^s commits — emit the save request.
+	case "ctrl+s", "y", "Y", "enter":
+		// Second confirm commits. We accept enter and y/Y too so the
+		// modal feels natural to non-vim users; ctrl+s is preserved
+		// for the muscle-memory "save again" gesture.
 		f.mode = ModeNav
 		return f, func() tea.Msg { return FormSaveRequestedMsg{} }
 	case "esc", "n", "N":
@@ -333,6 +437,68 @@ func (f Form) updateConfirmSave(km tea.KeyMsg) (Form, tea.Cmd) {
 		return f, nil
 	}
 	return f, nil
+}
+
+// updateCommand drives the inline ":" ex-prompt. Recognised commands:
+//
+//	:w   — show diff preview + arm save (same as ctrl+s).
+//	:q   — quit. Refuses with a no-op when dirty (vim does the same);
+//	       use :q! to discard.
+//	:wq  — save, then quit on the FormSaveRequestedMsg success path.
+//	:q!  — discard pending edits and quit.
+//
+// Anything else exits the prompt silently. Esc cancels.
+func (f Form) updateCommand(km tea.KeyMsg) (Form, tea.Cmd) {
+	switch km.String() {
+	case "esc":
+		f.mode = ModeNav
+		f.commandInput.SetValue("")
+		f.commandInput.Blur()
+		return f, nil
+	case "enter":
+		raw := strings.TrimSpace(f.commandInput.Value())
+		f.commandInput.SetValue("")
+		f.commandInput.Blur()
+		switch raw {
+		case "w":
+			f.mode = ModeNav
+			if f.IsDirty() {
+				f.computeDiff()
+				f.mode = ModeConfirmSave
+			}
+			return f, nil
+		case "wq":
+			// Combined save+quit: enter the diff confirm; the host view
+			// can listen for FormSaveRequestedMsg and pop back after a
+			// successful save. Equivalent to :w then :q in two strokes.
+			f.mode = ModeNav
+			if !f.IsDirty() {
+				return f, func() tea.Msg { return FormQuitRequestedMsg{} }
+			}
+			f.computeDiff()
+			f.mode = ModeConfirmSave
+			return f, nil
+		case "q":
+			if f.IsDirty() {
+				f.mode = ModeConfirmDiscard
+				return f, nil
+			}
+			f.mode = ModeNav
+			return f, func() tea.Msg { return FormQuitRequestedMsg{} }
+		case "q!":
+			// Force-quit — discard the buffer and notify the host.
+			f.mode = ModeNav
+			return f, func() tea.Msg { return FormQuitRequestedMsg{} }
+		}
+		// Unknown command — silently bail back to nav. We don't echo
+		// an error since the form's chrome is tight; the user just
+		// sees the prompt clear and can try again.
+		f.mode = ModeNav
+		return f, nil
+	}
+	var cmd tea.Cmd
+	f.commandInput, cmd = f.commandInput.Update(km)
+	return f, cmd
 }
 
 // forwardToActive sends a non-key message to whichever textinput is
@@ -417,9 +583,29 @@ func (f Form) View() string {
 		return sb.String()
 	}
 
+	// Inline `:` ex-prompt replaces the button row while active —
+	// keeps the form's vertical footprint stable across modes.
+	if f.mode == ModeCommand {
+		sb.WriteString("\n")
+		sb.WriteString(f.renderCommandPrompt())
+		return sb.String()
+	}
+
 	sb.WriteString("\n")
 	sb.WriteString(f.renderButtons())
 	return sb.String()
+}
+
+// renderCommandPrompt draws the inline ":" ex-mode line. Same accent
+// prompt + textinput pattern as the app-level ex-mode, scoped to the
+// form's width.
+func (f Form) renderCommandPrompt() string {
+	prompt := lipgloss.NewStyle().
+		Foreground(theme.ColorAccent).
+		Bold(true).
+		Render(":") + " "
+	hint := theme.Faint.Render("  ⏎ run · ⎋ cancel  (w · q · wq · q!)")
+	return prompt + f.commandInput.View() + hint
 }
 
 func (f Form) renderStatusStrip() string {
@@ -511,12 +697,16 @@ func chip(label, key string, accent bool) string {
 
 func (f Form) renderButtons() string {
 	dirty := f.IsDirty()
+	// Lead with vim verbs (i / : / dd / o) since those are the
+	// canonical bindings now; ctrl+ chips kept as smaller faint
+	// reminders so muscle memory across sessions still reads.
 	chips := []string{
-		chip("Save", "^s", dirty),
-		chip("Cancel", "esc", false),
-		chip("Add", "^a", false),
-		chip("Del", "^d", false),
-		chip("Hide", "^h", false),
+		chip("Edit", "i", false),
+		chip("Save", ":w", dirty),
+		chip("Quit", ":q", false),
+		chip("Add", "o", false),
+		chip("Del", "dd", false),
+		chip("Hide", "H", false),
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, chips...)
 }

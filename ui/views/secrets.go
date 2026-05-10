@@ -111,6 +111,24 @@ func (v SecretsView) Update(msg tea.Msg) (SecretsView, tea.Cmd) {
 		}
 		return v, nil
 
+	case components.FormSaveRequestedMsg:
+		// User confirmed in the form's diff-preview / ex-mode `:w`.
+		// Run the API call; the SecretSavedMsg above closes the editor.
+		if v.mode == secretsModeEdit {
+			return v.saveSecret()
+		}
+		return v, nil
+
+	case components.FormQuitRequestedMsg:
+		// `:q` (clean) or `:q!` — pop back to the list. Mirrors the
+		// view-level esc fallback but is initiated from the ex-prompt.
+		if v.mode == secretsModeEdit {
+			v.mode = secretsModeList
+			v.current = nil
+			v.saveMsg = ""
+		}
+		return v, nil
+
 	case FilterMsg:
 		v.filter = msg.Query
 		v.table = v.table.SetRows(v.rows())
@@ -170,18 +188,18 @@ func (v SecretsView) openEditor() (SecretsView, tea.Cmd) {
 }
 
 func (v SecretsView) updateEdit(msg tea.KeyMsg) (SecretsView, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	// Esc only exits the editor when the form is already in nav mode
+	// — vim semantics. In edit/command/confirm modes esc is forwarded
+	// to the form so it can return to nav (or cancel the prompt).
+	if msg.String() == "esc" && v.form.Mode() == components.ModeNav && !v.form.IsDirty() {
 		v.mode = secretsModeList
 		v.current = nil
 		v.saveMsg = ""
 		return v, nil
-	case "ctrl+s":
-		return v.saveSecret()
-	case "ctrl+a":
-		v.form = v.form.AddRow("", "")
-		return v, nil
 	}
+	// Everything else — including ctrl+s, ctrl+a, vim `i` / `:` /
+	// `dd` — flows through the form's mode machine. The view reacts
+	// to FormSaveRequestedMsg / FormQuitRequestedMsg upstream.
 	var cmd tea.Cmd
 	v.form, cmd = v.form.Update(msg)
 	return v, cmd
@@ -244,14 +262,14 @@ func (v SecretsView) Chips() []layout.FilterChip {
 
 // KeyHints implements views.View — hints differ between list and edit mode so
 // the command bar always reflects what the focused pane actually does.
-// In list mode only Enter (open editor) and `/` are wired; yaml/delete live
-// in KeyMap as Soon entries.
+// Edit-mode hints lead with vim verbs (i / :w / :q) since those are the
+// canonical bindings; ctrl+s remains a working alias.
 func (v SecretsView) KeyHints() []layout.KeyHint {
 	if v.mode == secretsModeEdit {
 		return []layout.KeyHint{
-			{Key: "ctrl+s", Label: "save"},
-			{Key: "esc", Label: "cancel"},
-			{Key: "tab", Label: "next field"},
+			{Key: "i", Label: "edit"},
+			{Key: ":w", Label: "save"},
+			{Key: ":q", Label: "quit"},
 		}
 	}
 	return []layout.KeyHint{
@@ -261,14 +279,25 @@ func (v SecretsView) KeyHints() []layout.KeyHint {
 }
 
 // KeyMap implements views.KeyMap and powers the `?` help overlay. In edit
-// mode it returns the editor keymap so the overlay matches the focused pane.
+// mode the overlay surfaces the full vim keymap so newcomers can discover
+// the bindings; ctrl+ aliases stay listed too for fluency.
 func (v SecretsView) KeyMap() []components.KeySpec {
 	if v.mode == secretsModeEdit {
 		return []components.KeySpec{
-			{Key: "ctrl+s", Label: "save"},
-			{Key: "esc", Label: "cancel"},
-			{Key: "tab", Label: "next field"},
-			{Key: "ctrl+a", Label: "add row"},
+			{Key: "i / a", Label: "edit value"},
+			{Key: "I", Label: "edit key"},
+			{Key: "h / l", Label: "switch column"},
+			{Key: "j / k", Label: "next / prev row"},
+			{Key: "g / G", Label: "first / last"},
+			{Key: ":w", Label: "save (preview)"},
+			{Key: ":q", Label: "quit (refuses if dirty)"},
+			{Key: ":wq", Label: "save and quit"},
+			{Key: ":q!", Label: "discard and quit"},
+			{Key: "o", Label: "add row"},
+			{Key: "dd", Label: "delete row"},
+			{Key: "H", Label: "toggle hide"},
+			{Key: "esc", Label: "exit insert / cancel"},
+			{Key: "ctrl+s", Label: "save (alias)"},
 		}
 	}
 	return []components.KeySpec{

@@ -113,6 +113,22 @@ func (v ConfigMapsView) Update(msg tea.Msg) (ConfigMapsView, tea.Cmd) {
 		}
 		return v, nil
 
+	case components.FormSaveRequestedMsg:
+		// User confirmed in the form's diff-preview / ex-mode `:w`.
+		if v.mode == configMapsModeEdit {
+			return v.saveConfigMap()
+		}
+		return v, nil
+
+	case components.FormQuitRequestedMsg:
+		// `:q` (clean) or `:q!` — pop back to the list.
+		if v.mode == configMapsModeEdit {
+			v.mode = configMapsModeList
+			v.current = nil
+			v.saveMsg = ""
+		}
+		return v, nil
+
 	case FilterMsg:
 		v.filter = msg.Query
 		v.table = v.table.SetRows(v.rows())
@@ -172,16 +188,13 @@ func (v ConfigMapsView) openEditor() (ConfigMapsView, tea.Cmd) {
 }
 
 func (v ConfigMapsView) updateEdit(msg tea.KeyMsg) (ConfigMapsView, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	// Esc only exits when the form is in nav mode and clean — vim
+	// semantics. In other modes esc returns control to the form so it
+	// can leave insert mode or cancel the ex prompt.
+	if msg.String() == "esc" && v.form.Mode() == components.ModeNav && !v.form.IsDirty() {
 		v.mode = configMapsModeList
 		v.current = nil
 		v.saveMsg = ""
-		return v, nil
-	case "ctrl+s":
-		return v.saveConfigMap()
-	case "ctrl+a":
-		v.form = v.form.AddRow("", "")
 		return v, nil
 	}
 	var cmd tea.Cmd
@@ -249,13 +262,14 @@ func (v ConfigMapsView) Chips() []layout.FilterChip {
 }
 
 // KeyHints implements views.View. List mode only advertises Enter and `/`;
-// yaml/delete live in KeyMap as Soon entries.
+// yaml/delete live in KeyMap as Soon entries. Edit-mode hints lead with
+// vim verbs since those are the canonical bindings.
 func (v ConfigMapsView) KeyHints() []layout.KeyHint {
 	if v.mode == configMapsModeEdit {
 		return []layout.KeyHint{
-			{Key: "ctrl+s", Label: "save"},
-			{Key: "esc", Label: "cancel"},
-			{Key: "tab", Label: "next field"},
+			{Key: "i", Label: "edit"},
+			{Key: ":w", Label: "save"},
+			{Key: ":q", Label: "quit"},
 		}
 	}
 	return []layout.KeyHint{
@@ -264,15 +278,25 @@ func (v ConfigMapsView) KeyHints() []layout.KeyHint {
 	}
 }
 
-// KeyMap implements views.KeyMap and powers the `?` help overlay. In edit
-// mode it returns the editor keymap so the overlay matches the focused pane.
+// KeyMap implements views.KeyMap and powers the `?` help overlay. The
+// edit-mode keymap surfaces the vim bindings so newcomers can discover
+// them; ctrl+ aliases stay listed for fluency.
 func (v ConfigMapsView) KeyMap() []components.KeySpec {
 	if v.mode == configMapsModeEdit {
 		return []components.KeySpec{
-			{Key: "ctrl+s", Label: "save"},
-			{Key: "esc", Label: "cancel"},
-			{Key: "tab", Label: "next field"},
-			{Key: "ctrl+a", Label: "add row"},
+			{Key: "i / a", Label: "edit value"},
+			{Key: "I", Label: "edit key"},
+			{Key: "h / l", Label: "switch column"},
+			{Key: "j / k", Label: "next / prev row"},
+			{Key: "g / G", Label: "first / last"},
+			{Key: ":w", Label: "save (preview)"},
+			{Key: ":q", Label: "quit (refuses if dirty)"},
+			{Key: ":wq", Label: "save and quit"},
+			{Key: ":q!", Label: "discard and quit"},
+			{Key: "o", Label: "add row"},
+			{Key: "dd", Label: "delete row"},
+			{Key: "esc", Label: "exit insert / cancel"},
+			{Key: "ctrl+s", Label: "save (alias)"},
 		}
 	}
 	return []components.KeySpec{

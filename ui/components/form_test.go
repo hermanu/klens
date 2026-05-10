@@ -243,3 +243,65 @@ func TestForm_DiffCounts(t *testing.T) {
 		t.Errorf("changed: want 1, got %d", c)
 	}
 }
+
+// TestForm_VimInsertEnters verifies the vim `i` binding lands in the
+// value editor (matching the existing Enter / right shortcut).
+func TestForm_VimInsertEnters(t *testing.T) {
+	f := components.NewForm(map[string][]byte{"K": []byte("v")})
+	f, _ = sendKeys(t, f, "i")
+	if f.Mode() != components.ModeValueEdit {
+		t.Errorf("want ModeValueEdit after `i`, got %v", f.Mode())
+	}
+}
+
+// TestForm_VimWriteOpensConfirm verifies `:w` enters the diff preview
+// (ModeConfirmSave) when the form is dirty.
+func TestForm_VimWriteOpensConfirm(t *testing.T) {
+	f := components.NewForm(map[string][]byte{"K": []byte("v")})
+	f, _ = sendKeys(t, f, "i", "x", "esc")
+	if !f.IsDirty() {
+		t.Fatal("setup: expected dirty after typing")
+	}
+	// `:w` enters the diff preview rather than saving immediately —
+	// matches the existing ctrl+s flow.
+	f, _ = sendKeys(t, f, ":", "w", "enter")
+	if f.Mode() != components.ModeConfirmSave {
+		t.Errorf("want ModeConfirmSave after :w on dirty form, got %v", f.Mode())
+	}
+}
+
+// TestForm_VimQuitCleanEmits verifies `:q` on a clean form emits a
+// FormQuitRequestedMsg so the host view can pop back.
+func TestForm_VimQuitCleanEmits(t *testing.T) {
+	f := components.NewForm(map[string][]byte{"K": []byte("v")})
+	_, cmds := sendKeys(t, f, ":", "q", "enter")
+	// The last cmd should produce FormQuitRequestedMsg.
+	got := msgFromCmd(cmds[len(cmds)-1])
+	if _, ok := got.(components.FormQuitRequestedMsg); !ok {
+		t.Errorf("want FormQuitRequestedMsg from :q on clean form, got %T", got)
+	}
+}
+
+// TestForm_VimQuitDirtyOpensDiscard verifies `:q` on a dirty form
+// blocks (vim semantics) by surfacing the discard confirm instead.
+func TestForm_VimQuitDirtyOpensDiscard(t *testing.T) {
+	f := components.NewForm(map[string][]byte{"K": []byte("v")})
+	f, _ = sendKeys(t, f, "i", "x", "esc")
+	f, _ = sendKeys(t, f, ":", "q", "enter")
+	if f.Mode() != components.ModeConfirmDiscard {
+		t.Errorf("want ModeConfirmDiscard from :q on dirty form, got %v", f.Mode())
+	}
+}
+
+// TestForm_VimDDDeletes verifies the `dd` two-stroke deletes the row.
+func TestForm_VimDDDeletes(t *testing.T) {
+	f := components.NewForm(map[string][]byte{
+		"A": []byte("1"),
+		"B": []byte("2"),
+	})
+	before := f.RowCount()
+	f, _ = sendKeys(t, f, "d", "d")
+	if f.RowCount() != before-1 {
+		t.Errorf("want %d rows after dd, got %d", before-1, f.RowCount())
+	}
+}
