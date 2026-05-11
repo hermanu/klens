@@ -68,6 +68,22 @@ type TopBarConfig struct {
 	K8sVersion string
 	Region     string
 	KlensVer   string
+	// BuildID is shown in the top-bar title after the version, e.g.
+	// "◎ KLENS v0.3.0 · build a1b2c3d". Empty renders "build dev".
+	BuildID string
+	// Uptime is the cluster oldest-node age, rendered right-aligned in the
+	// dense KV grid. Empty renders "—".
+	Uptime string
+	// NodesReady / NodesTotal drive the top bar's right-aligned `nodes 9/9`
+	// counter. NodesTotal == 0 renders "—".
+	NodesReady int
+	NodesTotal int
+	// CPUSamples is a 0..100 normalised series for the right-aligned cpu
+	// sparkline. Empty renders "—" instead of a sparkline.
+	CPUSamples []float64
+	// CPUPercent is the latest cpu percent shown next to the sparkline. -1
+	// renders "—" instead of a number.
+	CPUPercent int
 	Namespace  string // shown in the breadcrumb, e.g. "ns:all"
 	Resource   string // shown in the breadcrumb, e.g. "pods"
 	Live       bool   // ● live indicator
