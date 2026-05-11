@@ -131,18 +131,31 @@ func renderDetailsContainers(cs []ContainerSummary, inner int) []string {
 	for _, c := range cs {
 		statusColor := theme.StatusStyleFor(c.Status).Dot
 		arrow := lipgloss.NewStyle().Foreground(theme.ColorAccent).Render("▸ ")
-		name := lipgloss.NewStyle().Foreground(theme.ColorFG).Render(c.Name)
-		statusStr := lipgloss.NewStyle().Foreground(statusColor).Render(c.Status)
 		rstColor := theme.ColorMuted
 		if c.Restarts > 0 {
 			rstColor = theme.ColorWarn
 		}
-		rst := lipgloss.NewStyle().Foreground(rstColor).Render(fmt.Sprintf("rst %d", c.Restarts))
+		rstStr := fmt.Sprintf("rst %d", c.Restarts)
+		// Reserve space for arrow(2) + 3-col gap + 3-col gap + rst.
+		// Name and status share the remainder; each gets min width 1.
+		minNameW := 1
+		minStatusW := 1
+		fixedW := 2 + 3 + 3 + lipgloss.Width(rstStr)
+		flexW := max(inner-fixedW, minNameW+minStatusW)
+		// Split flexible space roughly equally; name goes first
+		nameW := (flexW + 1) / 2
+		statusW := flexW - nameW
+		name := lipgloss.NewStyle().Foreground(theme.ColorFG).Render(truncToWidth(c.Name, nameW))
+		statusStr := lipgloss.NewStyle().Foreground(statusColor).Render(truncToWidth(c.Status, statusW))
+		rst := lipgloss.NewStyle().Foreground(rstColor).Render(rstStr)
 		rows = append(rows, arrow+name+"   "+statusStr+"   "+rst)
 
 		if c.Image != "" {
-			imgKey := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render("  image  ")
-			imgVal := lipgloss.NewStyle().Foreground(theme.ColorFG).Render(truncToWidth(c.Image, max(inner-10, 1)))
+			// imgKeyW = 10 keeps imgKey + imgVal aligned with the KVs section
+			// (keyW = 10) so the dossier reads as a single column grid.
+			const imgKeyW = 10
+			imgKey := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(padRight("  image", imgKeyW))
+			imgVal := lipgloss.NewStyle().Foreground(theme.ColorFG).Render(truncToWidth(c.Image, max(inner-imgKeyW, 1)))
 			rows = append(rows, imgKey+imgVal)
 		}
 	}

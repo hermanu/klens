@@ -100,6 +100,18 @@ func TestDefaultDetails_WidthClamp(t *testing.T) {
 		KVs: []layout.KV{
 			{Key: "image", Value: "ghcr.io/acme/api-gateway-with-a-very-long-image-tag:1.42.0-rc.5"},
 		},
+		Containers: []layout.ContainerSummary{
+			{
+				Name:     "horizontal-pod-autoscaler-controller-very-very-long",
+				Image:    "ghcr.io/acme/horizontal-pod-autoscaler-controller-with-a-very-very-long-image-tag:2.0.0",
+				Status:   "CrashLoopBackOff",
+				Restarts: 12345,
+			},
+		},
+		Sparks: []layout.MetricSeries{
+			{Label: "cpu", Value: "999m", Samples: []float64{10, 20, 30}},
+			{Label: "mem", Value: "9999Mi", Samples: []float64{10, 20, 30}},
+		},
 	}
 	for _, w := range []int{30, 60, 120} {
 		got := layout.DefaultDetails(w, 30, b)
