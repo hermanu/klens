@@ -218,6 +218,15 @@ func (v PodsView) Count() (visible, total int) {
 	return len(v.visiblePods()), len(v.pods)
 }
 
+// CursorIndex implements views.Cursored — 1-indexed row position of the
+// focused pod, or 0 when the table is empty.
+func (v PodsView) CursorIndex() int {
+	if v.table.RowCount() == 0 {
+		return 0
+	}
+	return v.table.SelectedIndex() + 1
+}
+
 // Chips implements views.View. The namespace is shown prominently in the top
 // bar already, so we don't repeat it here — only user-set chips (text filter,
 // drill scope) go in the strip. The scope chip uses a non-`/` key so the

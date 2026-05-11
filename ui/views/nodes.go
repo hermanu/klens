@@ -179,6 +179,14 @@ func (v NodesView) Count() (visible, total int) {
 	return len(v.visibleNodes()), len(v.nodes)
 }
 
+// CursorIndex implements views.Cursored.
+func (v NodesView) CursorIndex() int {
+	if v.table.RowCount() == 0 {
+		return 0
+	}
+	return v.table.SelectedIndex() + 1
+}
+
 // Chips implements views.View. Nodes are cluster-scoped — show that explicitly
 // instead of a namespace chip so the chip row isn't misleading.
 func (v NodesView) Chips() []layout.FilterChip {

@@ -172,6 +172,14 @@ func (v DeploymentsView) Count() (visible, total int) {
 	return len(v.visibleDeployments()), len(v.deployments)
 }
 
+// CursorIndex implements views.Cursored.
+func (v DeploymentsView) CursorIndex() int {
+	if v.table.RowCount() == 0 {
+		return 0
+	}
+	return v.table.SelectedIndex() + 1
+}
+
 // Chips implements views.View.
 func (v DeploymentsView) Chips() []layout.FilterChip {
 	chips := []layout.FilterChip{}

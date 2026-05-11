@@ -56,3 +56,11 @@ type Filterable interface {
 type Capturing interface {
 	CapturesKeys() bool
 }
+
+// Cursored is an optional interface views implement to expose the 1-indexed
+// position of the focused row. Used by the shell to render "N / total" in
+// the table panel's foot so the user always knows where they are in long
+// lists. Views without a cursor (sub-views like logs/describe) skip it.
+type Cursored interface {
+	CursorIndex() int
+}

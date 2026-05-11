@@ -138,6 +138,14 @@ func (v PVCsView) Count() (visible, total int) {
 	return len(v.visiblePVCs()), len(v.pvcs)
 }
 
+// CursorIndex implements views.Cursored.
+func (v PVCsView) CursorIndex() int {
+	if v.table.RowCount() == 0 {
+		return 0
+	}
+	return v.table.SelectedIndex() + 1
+}
+
 // Chips implements views.View.
 func (v PVCsView) Chips() []layout.FilterChip {
 	chips := []layout.FilterChip{}

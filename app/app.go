@@ -1172,12 +1172,22 @@ func tablePanelTitle(resource string, visible, total int, scope string) string {
 	return title + count
 }
 
-// tableFootForView assembles the table panel's bottom-right foot — just
-// the visible/total count. Key hints intentionally live ONLY in the
-// command bar's hint row; duplicating them here doubled the noise
-// (every keymap shortcut rendered twice on every frame).
-func tableFootForView(_ views.View, visible, total, _ int) string {
+// tableFootForView returns the table panel's bottom-right foot — the
+// 1-indexed cursor position, e.g. "15 / 54". The panel title already
+// carries the total (`PODS [54]` or `[15/54]` when filtered), so the
+// foot's job is to surface what the title cannot: how far down the
+// list the user has scrolled.
+//
+// Views without a cursor (the empty list case, or sub-views that don't
+// implement Cursored) fall back to the total so the foot still shows
+// SOMETHING meaningful instead of going blank.
+func tableFootForView(v views.View, visible, total, _ int) string {
 	dim := lipgloss.NewStyle().Foreground(theme.ColorMuted)
+	if c, ok := v.(views.Cursored); ok {
+		if idx := c.CursorIndex(); idx > 0 {
+			return dim.Render(fmt.Sprintf("%d / %d", idx, visible))
+		}
+	}
 	if visible == total {
 		return dim.Render(fmt.Sprintf("%d", total))
 	}
