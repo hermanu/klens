@@ -374,6 +374,13 @@ func (m Model) FlashError() string { return m.flashErr }
 // verify filter persistence across drill-downs.
 func (m Model) PodsFilter() string { return m.pods.Filter() }
 
+// CurrentResource returns the active view's canonical name (pods, deployments,
+// ...). Exposed so tests can verify mnemonic / bracket navigation without
+// poking package-internal state.
+func (m Model) CurrentResource() string {
+	return viewKindName(m.current)
+}
+
 // Init implements tea.Model. It fires one UpdatedMsg per resource type so all
 // view counts populate on first render, not just the focused view. No-ops when
 // client is nil (context picker / offline boot).
@@ -710,6 +717,33 @@ func (m Model) updateGlobal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "q":
 		return m, tea.Quit
+	}
+	// Mnemonics — only on top-level list views (skip when in logs/describe/
+	// genericDescribe so digit keys there still work for view-local features
+	// like the logs view's 1-5 lookback presets).
+	if m.isTopLevelList() {
+		switch msg.String() {
+		case "1":
+			return m.runCommand("pods")
+		case "2":
+			return m.runCommand("deployments")
+		case "3":
+			return m.runCommand("services")
+		case "4":
+			return m.runCommand("nodes")
+		case "5":
+			return m.runCommand("configmaps")
+		case "6":
+			return m.runCommand("secrets")
+		case "7":
+			return m.runCommand("namespaces")
+		case "8":
+			return m.runCommand("pvcs")
+		case "[":
+			return m.runCommand(cyclePrev(viewKindName(m.current)))
+		case "]":
+			return m.runCommand(cycleNext(viewKindName(m.current)))
+		}
 	}
 	return m.routeToCurrentView(msg)
 }
@@ -1406,6 +1440,49 @@ type BuildInfo struct {
 func (m Model) WithBuildInfo(b BuildInfo) Model {
 	m.buildInfo = b
 	return m
+}
+
+// isTopLevelList reports whether the current view is one of the 8 mnemonic
+// list views (gates digit + bracket nav so sub-views don't lose their own
+// digit handling).
+func (m Model) isTopLevelList() bool {
+	switch m.current {
+	case viewPods, viewDeployments, viewServices, viewSecrets,
+		viewConfigMaps, viewNamespaces, viewNodes, viewPVCs:
+		return true
+	case viewLogs, viewDescribe, viewGenericDescribe:
+		return false
+	}
+	return false
+}
+
+// railOrder is the canonical resource-rail order — must match the rail's
+// item slice exactly so `[`/`]` cycle through the same set the rail shows.
+var railOrder = []string{
+	"pods", "deployments", "services", "nodes",
+	"configmaps", "secrets", "namespaces", "pvcs",
+}
+
+// cyclePrev returns the previous rail entry, wrapping at the start. Returns
+// "pods" if `current` is unknown.
+func cyclePrev(current string) string {
+	for i, name := range railOrder {
+		if name == current {
+			return railOrder[(i-1+len(railOrder))%len(railOrder)]
+		}
+	}
+	return "pods"
+}
+
+// cycleNext returns the next rail entry, wrapping at the end. Returns "pods"
+// if `current` is unknown.
+func cycleNext(current string) string {
+	for i, name := range railOrder {
+		if name == current {
+			return railOrder[(i+1)%len(railOrder)]
+		}
+	}
+	return "pods"
 }
 
 // Compile-time references keep the interim helpers (clusterMeta, buildID)
