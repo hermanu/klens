@@ -28,9 +28,10 @@ type PanelConfig struct {
 	// Foot is inset into the bottom border row, right-aligned so it ends at
 	// column Width-2. Same notching treatment as Title.
 	Foot string
-	// Active, when true, swaps the border color from ColorBorder to ColorAccent
-	// and bolds the title's first stylable segment. Caller pre-styles the title
-	// for the inactive case; active swaps to accent on the same string.
+	// Active, when true, swaps the border color from ColorBorder to ColorAccent.
+	// The title string is passed through unchanged — callers that want a
+	// different title style when active should branch and pre-style accordingly
+	// before constructing the PanelConfig.
 	Active bool
 	// Body is a pre-rendered multi-line string. The caller is responsible for
 	// fitting it within (Width-2) x (Height-2). Excess is clipped at render
@@ -41,6 +42,9 @@ type PanelConfig struct {
 // Panel renders cfg.Body wrapped in a border with cfg.Title inset into the
 // top border row and cfg.Foot inset into the bottom border row.
 func Panel(cfg PanelConfig) string {
+	// Width: 2 border cols + col-2 title-inset offset + at least 4 cols of
+	// notch headroom = 8 cells minimum before the body is meaningfully
+	// renderable. Height: 1 top border + 1 body row + 1 bottom border = 3.
 	if cfg.Width < 8 {
 		cfg.Width = 8
 	}
@@ -69,10 +73,7 @@ func Panel(cfg PanelConfig) string {
 	}
 	if cfg.Foot != "" {
 		footInset := insetWrap(cfg.Foot)
-		footCol := cfg.Width - 2 - lipgloss.Width(footInset)
-		if footCol < 2 {
-			footCol = 2
-		}
+		footCol := max(cfg.Width-2-lipgloss.Width(footInset), 2)
 		frame = Overlay(frame, footInset, footCol, cfg.Height-1)
 	}
 
