@@ -787,6 +787,12 @@ func (m Model) runCommand(name string) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "context":
 		return m.openContextPicker(), nil
+	case "all":
+		// Clear the namespace scope so the current view lists across every
+		// namespace. Reuse the NamespaceSelectedMsg path so the handler
+		// fires the same broadcast + per-resource reload it does for a
+		// regular ns switch (Enter on a row in the namespaces view).
+		return m, func() tea.Msg { return views.NamespaceSelectedMsg{Name: ""} }
 	case viewNamePods, viewNameDeployments, viewNameServices, viewNameSecrets,
 		viewNameConfigMaps, viewNameNamespaces, viewNameNodes, viewNamePVCs:
 		m.current = paletteNameToView(name)

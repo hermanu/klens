@@ -1,7 +1,6 @@
 package components
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -131,10 +130,11 @@ func (t Table) View() string {
 	sb.WriteString(theme.Divider(t.width))
 	sb.WriteString("\n")
 
-	// Compute viewport: pageSize is the body's row capacity. We reserve 3
-	// rows for header + divider + status hint at the bottom; everything else
-	// goes to data rows. On a 30-row terminal that's ~27 visible pods.
-	pageSize := t.height - 3
+	// Compute viewport: pageSize is the body's row capacity. We reserve 2
+	// rows for header + divider; the rest goes to data rows. The "X–Y of N"
+	// in-table footer was dropped — the bordered panel's foot already shows
+	// the total count, so duplicating it here just stole a data row.
+	pageSize := t.height - 2
 	if pageSize < 1 {
 		pageSize = 20 // default when caller hasn't set height yet
 	}
@@ -153,27 +153,17 @@ func (t Table) View() string {
 		end = len(t.rows)
 	}
 
-	rendered := end - offset
+	// Build exactly pageSize body rows (data + blank padding) joined by "\n".
+	// Each renderRow returns a single styled line with no trailing newline.
+	body := make([]string, 0, pageSize)
 	for i := offset; i < end; i++ {
 		sel := i == t.selected
-		sb.WriteString(t.renderRow(t.rows[i], sel, colWidths))
-		sb.WriteString("\n")
+		body = append(body, t.renderRow(t.rows[i], sel, colWidths))
 	}
-	// Pad blank rows so the table always consumes its full budgeted height.
-	// Without this, short lists let the focus frame's bottom edge ride up
-	// against the last row, and the position hint below would jump up/down
-	// depending on how many rows are visible. The fixed height keeps both
-	// the frame and the hint glued to a stable position.
-	for i := rendered; i < pageSize; i++ {
-		sb.WriteString("\n")
+	for len(body) < pageSize {
+		body = append(body, "")
 	}
-	// Footer: position indicator, always rendered on the same row (just
-	// below the padded body). Helpful when scrolling through hundreds of
-	// rows so the user knows where they are.
-	if len(t.rows) > 0 {
-		hint := fmt.Sprintf("  %d–%d of %d", offset+1, end, len(t.rows))
-		sb.WriteString(lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(hint))
-	}
+	sb.WriteString(strings.Join(body, "\n"))
 	return sb.String()
 }
 

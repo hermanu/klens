@@ -27,6 +27,7 @@ func DefaultCommands() []Command {
 		{Name: "namespaces", Desc: "list namespaces", Alias: ":ns"},
 		{Name: "nodes", Desc: "list nodes", Alias: ":no"},
 		{Name: "pvcs", Desc: "list persistent volume claims", Alias: ":pvc"},
+		{Name: "all", Desc: "show all namespaces (clear scope)", Alias: ":all"},
 		{Name: "context", Desc: "switch cluster", Alias: ":ctx"},
 		{Name: "quit", Desc: "exit klens", Alias: ":q"},
 	}
