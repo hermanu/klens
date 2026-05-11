@@ -63,16 +63,16 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+	m = m.WithBuildInfo(app.BuildInfo{
+		Version: version,
+		Commit:  commit,
+		Date:    date,
+	})
 
 	if err := runProgram(m); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-
-	// Ensure GoReleaser ldflags symbols are referenced so the linker keeps them.
-	_ = version
-	_ = commit
-	_ = date
 }
 
 // runProgram starts the BubbleTea program and owns the watcher lifecycle.

@@ -43,19 +43,26 @@ const (
 	viewGenericDescribe // dedicated full-screen KV describe for non-pod resources (PVCs, etc.)
 )
 
-// Geometry — the modern shell's pane sizes. No left rail: the table fills
-// every column the terminal gives us, minus the right details pane (which
-// itself drops below `minDetailsAt`). We don't cap or center the content —
-// extra horizontal real estate goes straight to the table.
+// Geometry — bordered-panel shell. Every pane carries its own 1-row border
+// top + bottom, so the chrome cost is higher than the previous outer-frame
+// shell. minDetailsAt unchanged (right column drops below 120 cols).
 //
-// frameH/frameW account for the rounded focus frame drawn around the content
-// area (chips + table + details). The frame eats 1 cell on every edge, so
-// the inner content has 2 fewer rows / 2 fewer columns to work with.
+// The legacy constants (topBarHeight, cmdBarHeight, frameH, frameW) are kept
+// alongside the new ones because View() still uses them; Task 13 swaps the
+// renderer wholesale and the legacy block goes away with it.
 const (
-	detailsWidth = 44
+	navRailWidth     = 22
+	detailsWidth     = 44
+	topBarRowsWide   = 4   // 1 top border + 2 body + 1 bottom border
+	topBarRowsNarrow = 3   // 1 top border + 1 body + 1 bottom border
+	topBarWideAt     = 64  // width >= this enables the block logo + 3-col body
+	cmdBarRows       = 4   // 1 top border + 2 body + 1 bottom border
+	minDetailsAt     = 120 // unchanged — drop right column below this width
+	minNavRailAt     = 60  // below this, hide the rail too
+
+	// Legacy — used by the current View() body until Task 13's rewrite.
 	topBarHeight = 2 // 1 content row + 1 divider
 	cmdBarHeight = 1
-	minDetailsAt = 120
 	frameH       = 2 // top + bottom border rows
 	frameW       = 2 // left + right border columns
 )
@@ -67,6 +74,7 @@ type Model struct {
 	services  port.Services
 	namespace string // active namespace filter ("" = all)
 	cluster   ClusterInfo
+	buildInfo BuildInfo
 
 	current         viewKind
 	pods            views.PodsView
@@ -1323,3 +1331,86 @@ func fallback(s, def string) string {
 	}
 	return s
 }
+
+// clusterMeta aggregates cluster-wide stats for the nav rail's CLUSTER
+// footer and the top bar's right-aligned meta. All sources are best-effort:
+// missing data renders as "—" / -1 in the relevant fields.
+type clusterMeta struct {
+	NodesReady int
+	NodesTotal int
+	Pods       int
+	CPUSamples []float64
+	MEMSamples []float64
+	CPUPercent int
+	MEMPercent int
+	Uptime     string
+}
+
+func (m Model) clusterMeta() clusterMeta {
+	cm := clusterMeta{
+		CPUPercent: -1,
+		MEMPercent: -1,
+	}
+
+	// Pod count comes from the visible pods view total.
+	_, total := m.pods.Count()
+	cm.Pods = total
+
+	// Node count comes from the nodes view's total. Per-node readiness is
+	// not exposed by the View interface today; treat all known nodes as
+	// ready until a public ready/total accessor lands.
+	// TODO(node-readiness): expose ready breakdown without leaking k8s.io into views.
+	_, nTotal := m.nodes.Count()
+	if nTotal > 0 {
+		cm.NodesReady = nTotal
+		cm.NodesTotal = nTotal
+	}
+
+	// CPU / MEM aggregate samples + percent are not tracked at the model
+	// level today; defaults render "—". Aggregation is a follow-up.
+	// TODO(cluster-metrics): aggregate MetricsTickMsg samples into the model.
+
+	return cm
+}
+
+// buildID resolves the build identifier shown in the top bar title.
+// Preference: main.date short → main.commit short → "dev". main.go passes
+// these in via WithBuildInfo at construction time.
+func (m Model) buildID() string {
+	if d := m.buildInfo.Date; d != "" && d != "unknown" {
+		// Trim ISO timestamp to YYMMDD, e.g. "2026-05-11T12:34:56Z" → "260511".
+		if len(d) >= 10 {
+			return strings.ReplaceAll(d[2:10], "-", "")
+		}
+		return d
+	}
+	if c := m.buildInfo.Commit; c != "" && c != "none" {
+		if len(c) > 7 {
+			return c[:7]
+		}
+		return c
+	}
+	return "dev"
+}
+
+// BuildInfo carries the ldflags-injected version metadata into the model.
+type BuildInfo struct {
+	Version string
+	Commit  string
+	Date    string
+}
+
+// WithBuildInfo returns a copy of m with build metadata set. main.go calls
+// this so the top-bar title can render the version + commit/date without
+// importing main's vars directly.
+func (m Model) WithBuildInfo(b BuildInfo) Model {
+	m.buildInfo = b
+	return m
+}
+
+// Compile-time references keep the interim helpers (clusterMeta, buildID)
+// alive until Task 13's View() rewrite consumes them. Remove after Task 13.
+var (
+	_ = Model.clusterMeta
+	_ = Model.buildID
+)
