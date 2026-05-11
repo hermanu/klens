@@ -38,14 +38,26 @@ type LogLine struct {
 	Msg   string
 }
 
+// ContainerSummary holds the per-container data rendered in the CONTAINERS
+// section of the details pane. Image is intentionally "—" when the pane is
+// built from a list-level PodItem (which does not carry image info); a
+// DescribePod fetch would populate it accurately.
+type ContainerSummary struct {
+	Name     string
+	Image    string
+	Status   string
+	Restarts int32
+}
+
 // DetailsBlock is the data the details pane renders for the focused row.
-// Pods populate Sparks + LogTail; other resources usually only set Title + KVs.
+// Pods populate Sparks + Containers; other resources usually only set Title + KVs.
 type DetailsBlock struct {
-	Title    string
-	Subtitle string // optional second line under the title (e.g. namespace chip + status)
-	KVs      []KV
-	Sparks   []MetricSeries
-	LogTail  []LogLine
+	Title      string
+	Subtitle   string // optional second line under the title (e.g. namespace chip + status)
+	KVs        []KV
+	Sparks     []MetricSeries
+	LogTail    []LogLine
+	Containers []ContainerSummary // rendered in the CONTAINERS section; ignored until Task 7
 }
 
 // TopBarConfig holds the data the top bar renders.
