@@ -73,7 +73,7 @@ func Panel(cfg PanelConfig) string {
 	}
 	if cfg.Foot != "" {
 		footInset := insetWrap(cfg.Foot)
-		footCol := max(cfg.Width-2-lipgloss.Width(footInset), 2)
+		footCol := max(cfg.Width-1-lipgloss.Width(footInset), 2)
 		frame = Overlay(frame, footInset, footCol, cfg.Height-1)
 	}
 

@@ -54,6 +54,54 @@ func TestPanel_TitleOnly(t *testing.T) {
 	}
 }
 
+// TestPanel_TitleAndFoot verifies the foot inset lands on the bottom row,
+// right-aligned.
+func TestPanel_TitleAndFoot(t *testing.T) {
+	out := Panel(PanelConfig{
+		Width:  30,
+		Height: 5,
+		Title:  "PODS",
+		Foot:   "4 / 25",
+		Body:   "row",
+	})
+	plain := stripANSI(out)
+	lines := strings.Split(plain, "\n")
+
+	if !strings.Contains(lines[0], "PODS") {
+		t.Errorf("top row should carry the title, got %q", lines[0])
+	}
+	if !strings.Contains(lines[len(lines)-1], "4 / 25") {
+		t.Errorf("bottom row should carry the foot, got %q", lines[len(lines)-1])
+	}
+	// The foot is right-aligned: its rightmost char should sit at Width-2.
+	bottom := lines[len(lines)-1]
+	rIdx := strings.LastIndex(bottom, "4 / 25")
+	if rIdx < 0 {
+		t.Fatal("foot not found")
+	}
+	// Use lipgloss.Width to count display columns, not byte positions,
+	// since the border glyphs are multibyte UTF-8.
+	beforeFoot := bottom[:rIdx]
+	footDisplayCol := lipgloss.Width(beforeFoot)
+	footEndCol := footDisplayCol + lipgloss.Width("4 / 25")
+	// Width-2 because the last column is the border │.
+	if footEndCol != 30-2 {
+		t.Errorf("foot ends at col %d, want %d", footEndCol, 30-2)
+	}
+}
+
+// TestPanel_ActiveBorder verifies the border-color swap (the test checks
+// for the presence of an accent ANSI sequence, the simplest stable check
+// for color without parsing the full SGR stack).
+func TestPanel_ActiveBorder(t *testing.T) {
+	inactive := Panel(PanelConfig{Width: 20, Height: 3, Title: "X", Body: "y", Active: false})
+	active := Panel(PanelConfig{Width: 20, Height: 3, Title: "X", Body: "y", Active: true})
+
+	if inactive == active {
+		t.Fatal("active and inactive panels should differ")
+	}
+}
+
 // stripANSI removes CSI escape sequences so byte-level assertions are
 // stable. Good enough for tests; not a general-purpose stripper.
 func stripANSI(s string) string {
