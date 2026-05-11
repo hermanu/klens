@@ -10,7 +10,9 @@ var (
 	ColorBG = lipgloss.Color("#0c0c0c")
 	// ColorPanel intentionally equals ColorBG — separation comes from
 	// borders, not background tint.
-	ColorPanel  = lipgloss.Color("#0c0c0c")
+	ColorPanel = lipgloss.Color("#0c0c0c")
+	// ColorRaised intentionally equals ColorBG — the v3 palette flattens all
+	// surface tones; raised/panel/bg all share a single black.
 	ColorRaised = lipgloss.Color("#0c0c0c")
 	ColorHover  = lipgloss.Color("#1c1c1c")
 	// Selection / alt-row backgrounds equal the body background — selection
@@ -21,18 +23,21 @@ var (
 	ColorBorder      = lipgloss.Color("#3a3a3a") // dimmer in design
 	ColorBorderFaint = lipgloss.Color("#1c1c1c")
 	ColorFG          = lipgloss.Color("#cccccc")
-	ColorFG2         = lipgloss.Color("#cccccc")
-	ColorMid         = lipgloss.Color("#6a6a6a")
-	ColorMuted       = lipgloss.Color("#6a6a6a") // "dim" in design
-	ColorMuted2      = lipgloss.Color("#3a3a3a") // "dimmer" in design
-	ColorDim         = lipgloss.Color("#6a6a6a")
-	ColorFaint       = lipgloss.Color("#3a3a3a")
-	ColorAccent      = lipgloss.Color("#70c0b1") // bright-cyan — primary accent
-	ColorAccentDim   = lipgloss.Color("#14304a") // sel-bg in design
-	ColorWarn        = lipgloss.Color("#e7c547") // bright-yellow
-	ColorError       = lipgloss.Color("#d54e53") // bright-red
-	ColorOk          = lipgloss.Color("#b9ca4a") // bright-green
-	ColorInfo        = lipgloss.Color("#7aa6da") // bright-blue
+	// ColorFG2 intentionally equals ColorFG — the v3 palette uses a single
+	// foreground tone. Kept as a distinct token for source-compat with the
+	// 5 call sites that already address it by name.
+	ColorFG2       = lipgloss.Color("#cccccc")
+	ColorMid       = lipgloss.Color("#6a6a6a")
+	ColorMuted     = lipgloss.Color("#6a6a6a") // "dim" in design
+	ColorMuted2    = lipgloss.Color("#3a3a3a") // "dimmer" in design
+	ColorDim       = lipgloss.Color("#6a6a6a")
+	ColorFaint     = lipgloss.Color("#3a3a3a")
+	ColorAccent    = lipgloss.Color("#70c0b1") // bright-cyan — primary accent
+	ColorAccentDim = lipgloss.Color("#14304a") // sel-bg in design
+	ColorWarn      = lipgloss.Color("#e7c547") // bright-yellow
+	ColorError     = lipgloss.Color("#d54e53") // bright-red
+	ColorOk        = lipgloss.Color("#b9ca4a") // bright-green
+	ColorInfo      = lipgloss.Color("#7aa6da") // bright-blue
 )
 
 // NSColor maps namespace name → color. Drawn from the v3 ANSI palette so a
