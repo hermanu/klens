@@ -11,6 +11,8 @@
 package components
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/hermanu/klens/ui/theme"
 )
@@ -57,6 +59,25 @@ func Panel(cfg PanelConfig) string {
 		borderColor = theme.ColorAccent
 	}
 
+	// Hard-clamp body to exactly (Height-2) rows × (Width-2) cells. Lipgloss
+	// `.Height(N)` pads but does NOT truncate; `.Width(N)` pads short rows
+	// but WRAPS rows wider than N to multiple lines. Either overflow would
+	// cause the rendered panel to exceed cfg.Width × cfg.Height, pushing
+	// siblings (and the frame's bottom edge) off-screen. Clip both axes
+	// here so the panel is always exactly cfg.Width × cfg.Height.
+	innerH := cfg.Height - 2
+	innerW := cfg.Width - 2
+	bodyLines := strings.Split(cfg.Body, "\n")
+	if len(bodyLines) > innerH {
+		bodyLines = bodyLines[:innerH]
+	}
+	for i, line := range bodyLines {
+		if lipgloss.Width(line) > innerW {
+			bodyLines[i] = clipToWidth(line, innerW)
+		}
+	}
+	clampedBody := strings.Join(bodyLines, "\n")
+
 	// Lipgloss's NormalBorder gives us ┌─┐│└┘ — exactly the glyph set the
 	// inset overlay expects. Padding 0 keeps the inner area edge-to-edge so
 	// the body is the caller's exact (Width-2) x (Height-2) canvas.
@@ -64,8 +85,8 @@ func Panel(cfg PanelConfig) string {
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(borderColor).
 		Width(cfg.Width - 2).
-		Height(cfg.Height - 2).
-		Render(cfg.Body)
+		Height(innerH).
+		Render(clampedBody)
 
 	if cfg.Title != "" {
 		titleInset := insetWrap(cfg.Title)
@@ -89,4 +110,17 @@ func Panel(cfg PanelConfig) string {
 func insetWrap(s string) string {
 	pad := lipgloss.NewStyle().Background(theme.ColorPanel).Render(" ")
 	return pad + s + pad
+}
+
+// clipToWidth trims a styled string from the right until its display width
+// is at most n. Preserves ANSI escape sequences naively: byte-trims, so a
+// trailing partial CSI sequence may remain — harmless because terminals
+// ignore unterminated CSI and the body will overflow into the border at
+// most by an invisible byte run, never visibly. Used to ensure body rows
+// never exceed Width-2 cells before lipgloss wraps them.
+func clipToWidth(s string, n int) string {
+	for s != "" && lipgloss.Width(s) > n {
+		s = s[:len(s)-1]
+	}
+	return s
 }
