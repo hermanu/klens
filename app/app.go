@@ -55,7 +55,6 @@ const (
 	detailsWidth = 44
 	topBarHeight = 2 // 1 content row + 1 divider
 	cmdBarHeight = 1
-	chipsHeight  = 1
 	minDetailsAt = 120
 	frameH       = 2 // top + bottom border rows
 	frameW       = 2 // left + right border columns
@@ -973,10 +972,8 @@ func (m Model) View() string {
 		extraBottom = 1
 	}
 	// Inner content height = total height minus everything else, including
-	// the focus frame's two border rows. contentH counts table rows; the
-	// chip strip lives above the table inside the frame, so its row is
-	// already accounted for here.
-	contentH := m.height - topBarHeight - cmdBarHeight - chipsHeight - extraBottom - frameH
+	// the focus frame's two border rows.
+	contentH := m.height - topBarHeight - cmdBarHeight - extraBottom - frameH
 	if contentH < 1 {
 		contentH = 1
 	}
@@ -991,13 +988,12 @@ func (m Model) View() string {
 	}
 	midW := innerW - detW
 
-	chips := layout.FilterChips(midW, v.Chips(), visible, total)
 	tbl := v.Table(midW, contentH)
-	center := lipgloss.JoinVertical(lipgloss.Left, chips, tbl)
+	center := tbl
 
 	cols := []string{center}
 	if showDetails {
-		cols = append(cols, v.Details(detW, contentH+chipsHeight))
+		cols = append(cols, v.Details(detW, contentH))
 	}
 	row := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
 
