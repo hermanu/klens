@@ -92,16 +92,17 @@ func TestTopBar_Wide_DropsRedundantClusterAndUser(t *testing.T) {
 	}
 }
 
-// TestTopBar_BodyHasTwoRows verifies the body is always 2 rows at wide widths
-// (no divider — the bordering panel draws the border row separately).
-func TestTopBar_BodyHasTwoRows(t *testing.T) {
+// TestTopBar_BodyHasSixRows verifies the wide body is exactly 6 rows tall,
+// matching the 6-row block-shadow KLENS logo. The bordering panel adds the
+// 2 border rows separately (topBarRowsWide = 8 in app/app.go).
+func TestTopBar_BodyHasSixRows(t *testing.T) {
 	out := layout.TopBar(120, layout.TopBarConfig{
 		Context:    "prod",
 		NodesReady: 1, NodesTotal: 1,
 	})
 	lines := strings.Split(out, "\n")
-	if len(lines) != 2 {
-		t.Errorf("want 2 body rows at width=120, got %d:\n%s", len(lines), out)
+	if len(lines) != 6 {
+		t.Errorf("want 6 body rows at width=120, got %d:\n%s", len(lines), out)
 	}
 }
 
@@ -113,7 +114,7 @@ func TestTopBar_Narrow_NoLogoSingleRow(t *testing.T) {
 		NodesReady: 9, NodesTotal: 9,
 	})
 	plain := stripANSI(out)
-	if strings.Contains(plain, "█▄▀") {
+	if strings.Contains(plain, "█████") {
 		t.Errorf("block logo should be hidden at width=50:\n%s", plain)
 	}
 	if lines := strings.Split(out, "\n"); len(lines) != 1 {

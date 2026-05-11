@@ -62,9 +62,9 @@ const (
 const (
 	navRailWidth     = 22
 	detailsWidth     = 44
-	topBarRowsWide   = 4   // 1 top border + 2 body + 1 bottom border
+	topBarRowsWide   = 8   // 1 top border + 6 body + 1 bottom border
 	topBarRowsNarrow = 3   // 1 top border + 1 body + 1 bottom border
-	topBarWideAt     = 64  // width >= this enables the block logo + 3-col body
+	topBarWideAt     = 80  // width >= this enables the 6-row block logo + KV column
 	cmdBarRows       = 4   // 1 top border + 2 body + 1 bottom border
 	minDetailsAt     = 120 // unchanged — drop right column below this width
 	minNavRailAt     = 60  // below this, hide the rail too

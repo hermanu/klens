@@ -19,16 +19,22 @@ import (
 	"github.com/hermanu/klens/ui/theme"
 )
 
-// KlensLogo is the 2-row block-character KLENS banner shown in the top bar
-// body at width >= 60. Uses half-block glyphs so the letters render as
-// solid 2-cell-tall shapes across most terminals.
-var KlensLogo = [2]string{
-	"█▄▀ █   █▀▀ █▄ █ █▀",
-	"█ █ █▄▄ █▄▄ █ ▀█ ▄█",
+// KlensLogo is the 6-row block-shadow KLENS banner shown in the top bar
+// body at width >= topBarWideAt. Same figlet "ANSI Shadow" style used in
+// the README hero — combines █ for the letter fills with box-drawing
+// glyphs (╗║╔╚╝═) for the shadow edge. Renders cleanly on any terminal
+// that supports unicode box-drawing (every modern one).
+var KlensLogo = [6]string{
+	"██╗  ██╗██╗     ███████╗███╗   ██╗███████╗",
+	"██║ ██╔╝██║     ██╔════╝████╗  ██║██╔════╝",
+	"█████╔╝ ██║     █████╗  ██╔██╗ ██║███████╗",
+	"██╔═██╗ ██║     ██╔══╝  ██║╚██╗██║╚════██║",
+	"██║  ██╗███████╗███████╗██║ ╚████║███████║",
+	"╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═══╝╚══════╝",
 }
 
-// LogoWidth is the column count of the KlensLogo entries.
-const LogoWidth = 19
+// LogoWidth is the column count of every KlensLogo row.
+const LogoWidth = 42
 
 // TopBarTitle returns the styled title string for the top-bar Panel:
 //
@@ -61,74 +67,112 @@ func TopBarFoot(pulseOn, live bool) string {
 
 // TopBar renders the top-bar body (no border — caller wraps via Panel).
 // width is the INNER content width (caller passes outerW-2).
+//
+// Wide path returns 6 rows (logo on the left, KV grid on the right); narrow
+// path returns a single-row fallback at widths < topBarWideAt. The caller
+// passes Height accordingly via the geometry constants in app/app.go.
 func TopBar(width int, cfg TopBarConfig) string {
 	if width < 8 {
 		width = 8
 	}
-	if width < 60 {
+	if width < topBarWideAt {
 		return renderTopBarNarrow(width, cfg)
 	}
 	return renderTopBarWide(width, cfg)
 }
 
+// topBarWideAt mirrors the app/app.go constant of the same name: minimum
+// inner width at which the wide path renders. Below this, the body
+// collapses to a single-row identity strip. 80 cells = logo(42) + gap(2) +
+// minimum KV column(~36) — narrower than this would truncate the KVs.
+const topBarWideAt = 80
+
 func renderTopBarWide(inner int, cfg TopBarConfig) string {
 	logoStyle := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
-	logoRow0 := logoStyle.Render(KlensLogo[0])
-	logoRow1 := logoStyle.Render(KlensLogo[1])
+	logoRows := make([]string, len(KlensLogo))
+	for i, line := range KlensLogo {
+		logoRows[i] = logoStyle.Render(line)
+	}
 
-	// Right column intentionally dropped: the nav rail's CLUSTER footer
-	// already shows nodes/cpu/mem aggregates, and rendering them here too
-	// just doubled the noise (worse: this header would say "cpu —" when the
-	// aggregate isn't wired yet). KV grid gets the leftover width.
 	gap := "  "
 	kvW := max(inner-LogoWidth-len(gap), 20)
+	kvRows := kvColumn(cfg, kvW, len(KlensLogo))
 
-	kvRow0 := kvLine(cfg, 0, kvW)
-	kvRow1 := kvLine(cfg, 1, kvW)
-
-	row0 := logoRow0 + gap + padRight(kvRow0, kvW)
-	row1 := logoRow1 + gap + padRight(kvRow1, kvW)
-	return row0 + "\n" + row1
+	out := make([]string, len(KlensLogo))
+	for i := range KlensLogo {
+		out[i] = logoRows[i] + gap + padRight(kvRows[i], kvW)
+	}
+	return strings.Join(out, "\n")
 }
 
-func kvLine(cfg TopBarConfig, line, w int) string {
+// kvColumn renders the identity KV grid as exactly n vertically-stacked
+// rows so it aligns 1:1 with the logo rows. Each KV pair occupies one
+// row; empty / duplicate fields render as blank rows so the grid stays
+// rectangular. The mapping (ctx → cluster → user → region → k8s → uptime)
+// keeps the most-stable identity fields at the top and the volatile ones
+// at the bottom.
+func kvColumn(cfg TopBarConfig, w, n int) []string {
 	dim := lipgloss.NewStyle().Foreground(theme.ColorMuted)
 	hi := lipgloss.NewStyle().Foreground(theme.ColorFG)
 	hiBold := lipgloss.NewStyle().Foreground(theme.ColorFG).Bold(true)
 
-	// Normalised identity strings — EKS's `aws eks update-kubeconfig` sets
-	// kubeconfig context/cluster/user all to the same ARN, so showing each
-	// raw would print three identical 60-char strings. trimClusterIdent
-	// collapses them to the trailing path segment (e.g. "maisa-sdlc-eks").
+	// EKS's `aws eks update-kubeconfig` sets kubeconfig context/cluster/user
+	// all to the same ARN — trimming to the basename and skipping duplicates
+	// keeps the grid useful instead of three identical 60-char ARNs.
 	ctx := trimClusterIdent(cfg.Context)
 	cluster := trimClusterIdent(cfg.Cluster)
 	user := trimClusterIdent(cfg.User)
 
-	if line == 0 {
-		// ctx <ctx>   [cluster <cluster>]?   region <region>
-		// cluster row is skipped when identical to ctx (EKS default state).
-		parts := []string{
-			dim.Render("ctx ") + hiBold.Render(safeStr(ctx, "—")),
+	row := func(label, value string, strong bool) string {
+		if value == "" {
+			return ""
 		}
-		if cluster != "" && cluster != ctx {
-			parts = append(parts, dim.Render("cluster ")+hi.Render(cluster))
+		labelStyled := dim.Render(label + " ")
+		valueStyled := hi.Render(value)
+		if strong {
+			valueStyled = hiBold.Render(value)
 		}
-		if r := strings.TrimSpace(cfg.Region); r != "" && r != "—" {
-			parts = append(parts, dim.Render("region ")+hi.Render(r))
+		s := labelStyled + valueStyled
+		if lw := lipgloss.Width(s); lw < w {
+			s += strings.Repeat(" ", w-lw)
 		}
-		return joinFit(parts, "   ", w)
+		return s
 	}
-	// line 1: [user <user>]?   k8s <k8s>   [uptime <uptime>]?
-	// user row hidden when identical to ctx (EKS default).
-	parts := []string{}
+
+	rows := []string{
+		row("ctx", safeStr(ctx, "—"), true),
+		"", // placeholder — cluster row filled below when distinct from ctx
+		"",
+		row("region", optionalStr(cfg.Region), false),
+		row("k8s", safeStr(cfg.K8sVersion, "—"), false),
+		row("uptime", optionalStr(cfg.Uptime), false),
+	}
+	if cluster != "" && cluster != ctx {
+		rows[1] = row("cluster", cluster, false)
+	}
 	if user != "" && user != ctx {
-		parts = append(parts, dim.Render("user ")+hi.Render(user))
+		rows[2] = row("user", user, false)
 	}
-	parts = append(parts, dim.Render("k8s ")+hi.Render(safeStr(cfg.K8sVersion, "—")))
-	if up := strings.TrimSpace(cfg.Uptime); up != "" && up != "—" {
-		parts = append(parts, dim.Render("uptime ")+hi.Render(up))
+	// Clamp / pad to n rows so the column always returns exactly len(logo)
+	// entries regardless of how many KV fields are populated.
+	if len(rows) > n {
+		rows = rows[:n]
 	}
-	return joinFit(parts, "   ", w)
+	for len(rows) < n {
+		rows = append(rows, "")
+	}
+	return rows
+}
+
+// optionalStr returns "" for empty/placeholder values so the kvColumn can
+// suppress entire rows when an identity field isn't wired yet (e.g. region
+// stays empty for clusters that don't carry one in kubeconfig).
+func optionalStr(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "—" {
+		return ""
+	}
+	return s
 }
 
 // trimClusterIdent collapses an ARN-style identity to its trailing
@@ -165,26 +209,6 @@ func renderTopBarNarrow(inner int, cfg TopBarConfig) string {
 		row += strings.Repeat(" ", inner-w)
 	}
 	return row
-}
-
-// joinFit joins parts with sep, dropping trailing parts until the joined
-// string's display width fits within w. Always returns at least the first
-// part (truncated if needed).
-func joinFit(parts []string, sep string, w int) string {
-	for i := len(parts); i > 0; i-- {
-		s := strings.Join(parts[:i], sep)
-		if lipgloss.Width(s) <= w {
-			return s
-		}
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	first := parts[0]
-	for first != "" && lipgloss.Width(first) > w {
-		first = first[:len(first)-1]
-	}
-	return first
 }
 
 func safeStr(s, def string) string {
