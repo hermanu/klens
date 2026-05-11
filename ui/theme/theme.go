@@ -2,50 +2,49 @@ package theme
 
 import "github.com/charmbracelet/lipgloss"
 
-// Color tokens — the "midnight" palette from the Klens design (klens-data.jsx).
-// Existing names kept as backward-compatible aliases where the role overlaps.
+// Color tokens — v3 "ANSI-faithful" palette. Constrained 16-color set that
+// renders identically on terminals that don't support truecolor and looks
+// faithful to the v3 design on those that do. Names preserved for source-
+// compat with consumers; only hex values change.
 var (
-	ColorBG = lipgloss.Color("#06080b")
-	// ColorPanel intentionally equals ColorBG: in HTML, panel=#0e1116 reads
-	// as a hair lighter than body=#06080b, but on most terminals that
-	// renders as a visibly gray block. Using the same value everywhere
-	// keeps the chrome unified — separation comes from divider lines and
-	// border colors instead.
-	ColorPanel  = lipgloss.Color("#06080b")
-	ColorRaised = lipgloss.Color("#0b0d10")
-	ColorHover  = lipgloss.Color("#15151a")
-	// Selection and alt-row backgrounds equal the body background — separation
-	// is by accent left bar + cursor glyph, not by row tint, so the table
-	// reads as fully black instead of gray-striped.
-	ColorSel         = lipgloss.Color("#06080b")
-	ColorRowAlt      = lipgloss.Color("#06080b")
-	ColorBorder      = lipgloss.Color("#1f2a3a")
-	ColorBorderFaint = lipgloss.Color("#11171f")
-	ColorFG          = lipgloss.Color("#e5e7eb")
-	ColorFG2         = lipgloss.Color("#cbd5e1")
-	ColorMid         = lipgloss.Color("#94a3b8")
-	ColorMuted       = lipgloss.Color("#64748b")
-	ColorMuted2      = lipgloss.Color("#475569")
-	ColorDim         = lipgloss.Color("#5b6478")
-	ColorFaint       = lipgloss.Color("#3a3f4a")
-	ColorAccent      = lipgloss.Color("#7dd3fc") // sky-300 — design's primary accent
-	ColorAccentDim   = lipgloss.Color("#0c2738")
-	ColorWarn        = lipgloss.Color("#fbbf24")
-	ColorError       = lipgloss.Color("#fb7185")
-	ColorOk          = lipgloss.Color("#a3e635")
-	ColorInfo        = lipgloss.Color("#7d8d9a")
+	ColorBG = lipgloss.Color("#0c0c0c")
+	// ColorPanel intentionally equals ColorBG — separation comes from
+	// borders, not background tint.
+	ColorPanel  = lipgloss.Color("#0c0c0c")
+	ColorRaised = lipgloss.Color("#0c0c0c")
+	ColorHover  = lipgloss.Color("#1c1c1c")
+	// Selection / alt-row backgrounds equal the body background — selection
+	// is signalled by the accent left bar `▌` + cursor glyph `›`, not by row
+	// tint. Keeps the table reading as fully black with the cursor jumping.
+	ColorSel         = lipgloss.Color("#0c0c0c")
+	ColorRowAlt      = lipgloss.Color("#0c0c0c")
+	ColorBorder      = lipgloss.Color("#3a3a3a") // dimmer in design
+	ColorBorderFaint = lipgloss.Color("#1c1c1c")
+	ColorFG          = lipgloss.Color("#cccccc")
+	ColorFG2         = lipgloss.Color("#cccccc")
+	ColorMid         = lipgloss.Color("#6a6a6a")
+	ColorMuted       = lipgloss.Color("#6a6a6a") // "dim" in design
+	ColorMuted2      = lipgloss.Color("#3a3a3a") // "dimmer" in design
+	ColorDim         = lipgloss.Color("#6a6a6a")
+	ColorFaint       = lipgloss.Color("#3a3a3a")
+	ColorAccent      = lipgloss.Color("#70c0b1") // bright-cyan — primary accent
+	ColorAccentDim   = lipgloss.Color("#14304a") // sel-bg in design
+	ColorWarn        = lipgloss.Color("#e7c547") // bright-yellow
+	ColorError       = lipgloss.Color("#d54e53") // bright-red
+	ColorOk          = lipgloss.Color("#b9ca4a") // bright-green
+	ColorInfo        = lipgloss.Color("#7aa6da") // bright-blue
 )
 
-// NSColor maps namespace name → color. Mirrors the design's NS_COLORS map.
-// The default fallback is ColorMid for unknown namespaces.
+// NSColor maps namespace name → color. Drawn from the v3 ANSI palette so a
+// single status-pill glance reads as the same hue across the screen.
 var NSColor = map[string]lipgloss.Color{
-	"kube-system": lipgloss.Color("#94a3b8"),
-	"default":     lipgloss.Color("#7dd3fc"),
-	"monitoring":  lipgloss.Color("#a3e635"),
-	"ingress":     lipgloss.Color("#f0abfc"),
-	"data":        lipgloss.Color("#fbbf24"),
-	"platform":    lipgloss.Color("#22d3ee"),
-	"argocd":      lipgloss.Color("#fb7185"),
+	"kube-system": lipgloss.Color("#6a6a6a"),
+	"default":     lipgloss.Color("#7aa6da"),
+	"monitoring":  lipgloss.Color("#b9ca4a"),
+	"ingress":     lipgloss.Color("#c397d8"),
+	"data":        lipgloss.Color("#e7c547"),
+	"platform":    lipgloss.Color("#70c0b1"),
+	"argocd":      lipgloss.Color("#d54e53"),
 }
 
 // NSColorFor returns the chip color for a namespace, falling back to ColorMid.
@@ -121,16 +120,18 @@ type StatusStyle struct {
 	Glow lipgloss.Color
 }
 
-// StatusStyles maps k8s phase → StatusStyle. Mirrors the design's STATUS_COLORS.
+// StatusStyles maps k8s phase → StatusStyle. v3 ANSI palette; Glow field
+// is retained for source compat but never rendered (terminals don't do
+// soft shadows).
 var StatusStyles = map[string]StatusStyle{
-	"Running":          {Dot: lipgloss.Color("#a3e635"), Text: lipgloss.Color("#bef264"), Glow: lipgloss.Color("#1a2410")},
-	"Pending":          {Dot: lipgloss.Color("#fbbf24"), Text: lipgloss.Color("#fde68a"), Glow: lipgloss.Color("#241c08")},
-	"CrashLoopBackOff": {Dot: lipgloss.Color("#f472b6"), Text: lipgloss.Color("#fbcfe8"), Glow: lipgloss.Color("#2a1525")},
-	"ImagePullBackOff": {Dot: lipgloss.Color("#fb7185"), Text: lipgloss.Color("#fecdd3"), Glow: lipgloss.Color("#2a1014")},
-	"Error":            {Dot: lipgloss.Color("#fb7185"), Text: lipgloss.Color("#fecdd3"), Glow: lipgloss.Color("#2a1014")},
-	"OOMKilled":        {Dot: lipgloss.Color("#fb7185"), Text: lipgloss.Color("#fecdd3"), Glow: lipgloss.Color("#2a1014")},
-	"Terminating":      {Dot: lipgloss.Color("#94a3b8"), Text: lipgloss.Color("#cbd5e1"), Glow: lipgloss.Color("#1a1f28")},
-	"Completed":        {Dot: lipgloss.Color("#7dd3fc"), Text: lipgloss.Color("#bae6fd"), Glow: lipgloss.Color("#0c2230")},
+	"Running":          {Dot: lipgloss.Color("#b9ca4a"), Text: lipgloss.Color("#b9ca4a"), Glow: lipgloss.Color("#14304a")},
+	"Pending":          {Dot: lipgloss.Color("#e7c547"), Text: lipgloss.Color("#e7c547"), Glow: lipgloss.Color("#14304a")},
+	"CrashLoopBackOff": {Dot: lipgloss.Color("#d54e53"), Text: lipgloss.Color("#d54e53"), Glow: lipgloss.Color("#14304a")},
+	"ImagePullBackOff": {Dot: lipgloss.Color("#d54e53"), Text: lipgloss.Color("#d54e53"), Glow: lipgloss.Color("#14304a")},
+	"Error":            {Dot: lipgloss.Color("#d54e53"), Text: lipgloss.Color("#d54e53"), Glow: lipgloss.Color("#14304a")},
+	"OOMKilled":        {Dot: lipgloss.Color("#d54e53"), Text: lipgloss.Color("#d54e53"), Glow: lipgloss.Color("#14304a")},
+	"Terminating":      {Dot: lipgloss.Color("#6a6a6a"), Text: lipgloss.Color("#cccccc"), Glow: lipgloss.Color("#14304a")},
+	"Completed":        {Dot: lipgloss.Color("#7aa6da"), Text: lipgloss.Color("#7aa6da"), Glow: lipgloss.Color("#14304a")},
 	"Unknown":          {Dot: ColorFaint, Text: ColorMuted, Glow: ColorBorderFaint},
 }
 

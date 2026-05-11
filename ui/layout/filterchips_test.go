@@ -80,7 +80,7 @@ func TestFilterChips_WidthClamp(t *testing.T) {
 
 func TestFilterChips_StrongChipUsesAccent(t *testing.T) {
 	got := layout.FilterChips(120, []layout.FilterChip{{Key: "status", Value: "Error", Strong: true}}, 1, 10)
-	want := sgrFor(t, "#7dd3fc") // theme.ColorAccent
+	want := sgrFor(t, "#70c0b1") // theme.ColorAccent (v3 ANSI palette)
 	if !strings.Contains(got, want) {
 		t.Errorf("strong chip must render in accent color SGR %q, got %q", want, got)
 	}
