@@ -37,7 +37,10 @@ type NavItem struct {
 type ClusterMeta struct {
 	NodesReady int
 	NodesTotal int
-	Pods       int // visible pod count
+	// Pods is the cluster's visible pod count. Zero renders "—" — used as
+	// the "not yet fetched" sentinel because a healthy cluster never has
+	// zero pods (kube-system alone keeps the count non-zero).
+	Pods int
 	// CPUSamples / MEMSamples are 0..100 normalised; empty slice = "—".
 	CPUSamples []float64
 	MEMSamples []float64
@@ -46,7 +49,9 @@ type ClusterMeta struct {
 	MEMPercent int
 }
 
-// NavRailConfig bundles rail render inputs.
+// NavRailConfig groups the immutable render snapshot passed to NavRail so
+// the signature stays stable as new footer sections (e.g. recent events,
+// pinned namespaces) get added in future iterations.
 type NavRailConfig struct {
 	Items   []NavItem
 	Cluster ClusterMeta
@@ -55,6 +60,10 @@ type NavRailConfig struct {
 // NavRail renders the rail body, sized to fit inside a width × height
 // content area. The caller wraps the return value in components.Panel.
 func NavRail(width, height int, cfg NavRailConfig) string {
+	// Width 18: cursor(2) + mnemonic(2) + gap(1) + label(12) + gap(1) +
+	// count(>=3) plus 2 cols of bezel slack — narrower than this would
+	// corrupt the row layout. Height 4: minimum to show at least one item
+	// row plus the footer header + divider.
 	if width < 18 {
 		width = 18
 	}
@@ -69,9 +78,6 @@ func NavRail(width, height int, cfg NavRailConfig) string {
 
 	footer := renderClusterMeta(cfg.Cluster, width)
 	footerH := strings.Count(footer, "\n") + 1
-	if footer == "" {
-		footerH = 0
-	}
 
 	// Fit: items + blank-spacer + footer = height.
 	spacer := height - len(rows) - footerH
@@ -120,10 +126,7 @@ func renderNavItem(it NavItem, width int) string {
 	const mnemonicW = 2
 	const labelW = 12
 	// 2 for cursor prefix, gaps between segments.
-	countW := width - 2 - mnemonicW - 1 - labelW - 1
-	if countW < 3 {
-		countW = 3
-	}
+	countW := max(width-2-mnemonicW-1-labelW-1, 3)
 
 	cursor := "  "
 	mnemonicStyle := lipgloss.NewStyle().Foreground(theme.ColorMuted2)
