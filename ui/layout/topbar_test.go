@@ -36,8 +36,9 @@ func TestTopBarFoot_PulseSwap(t *testing.T) {
 }
 
 // TestTopBar_Wide_RendersBodyKVGrid verifies the body output at wide widths
-// contains the KV grid contents — the brand and buildID live in the TITLE
-// string, not in the body, so they are not asserted here.
+// contains the KV grid contents. The brand and buildID live in the TITLE
+// string (asserted separately); the right column was dropped because the
+// nav rail's CLUSTER footer already shows nodes/cpu/mem.
 func TestTopBar_Wide_RendersBodyKVGrid(t *testing.T) {
 	out := layout.TopBar(120, layout.TopBarConfig{
 		Context:    "production-eks",
@@ -48,10 +49,6 @@ func TestTopBar_Wide_RendersBodyKVGrid(t *testing.T) {
 		KlensVer:   "0.3.0",
 		BuildID:    "a1b2c3d",
 		Uptime:     "62d 14h",
-		NodesReady: 9,
-		NodesTotal: 9,
-		CPUSamples: []float64{40, 50, 60, 70, 60, 70, 80, 70, 60, 62},
-		CPUPercent: 62,
 	})
 	plain := stripANSI(out)
 	for _, want := range []string{
@@ -61,12 +58,37 @@ func TestTopBar_Wide_RendersBodyKVGrid(t *testing.T) {
 		"alice@acme.io",
 		"v1.30.4",
 		"62d 14h",
-		"9/9",
-		"62%",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("body missing %q\n--- output ---\n%s", want, plain)
 		}
+	}
+}
+
+// TestTopBar_Wide_DropsRedundantClusterAndUser verifies that when ctx,
+// cluster, and user are all the same ARN (the EKS default), the cluster
+// and user rows collapse and only the ctx line shows the basename. This
+// is the specific redundancy bug surfaced by an EKS kubeconfig.
+func TestTopBar_Wide_DropsRedundantClusterAndUser(t *testing.T) {
+	arn := "arn:aws:eks:eu-west-1:857619978098:cluster/maisa-sdlc-eks"
+	out := layout.TopBar(120, layout.TopBarConfig{
+		Context:    arn,
+		Cluster:    arn,
+		User:       arn,
+		K8sVersion: "v1.35.3",
+	})
+	plain := stripANSI(out)
+	if !strings.Contains(plain, "maisa-sdlc-eks") {
+		t.Errorf("ctx basename should render, got:\n%s", plain)
+	}
+	if strings.Contains(plain, "arn:aws:eks") {
+		t.Errorf("raw ARN should be trimmed to basename, got:\n%s", plain)
+	}
+	if strings.Contains(plain, "cluster maisa-sdlc-eks") {
+		t.Errorf("cluster row should collapse when identical to ctx, got:\n%s", plain)
+	}
+	if strings.Contains(plain, "user maisa-sdlc-eks") {
+		t.Errorf("user row should collapse when identical to ctx, got:\n%s", plain)
 	}
 }
 

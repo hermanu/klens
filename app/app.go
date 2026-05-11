@@ -1161,42 +1161,24 @@ func tablePanelTitle(resource string, visible, total int, scope string) string {
 	return title + count
 }
 
-// tableFootForView assembles the table's bottom-right foot string.
-func tableFootForView(v views.View, visible, total, maxW int) string {
-	hints := v.KeyHints()
+// tableFootForView assembles the table panel's bottom-right foot — just
+// the visible/total count. Key hints intentionally live ONLY in the
+// command bar's hint row; duplicating them here doubled the noise
+// (every keymap shortcut rendered twice on every frame).
+func tableFootForView(_ views.View, visible, total, _ int) string {
 	dim := lipgloss.NewStyle().Foreground(theme.ColorMuted)
-	parts := []string{
-		dim.Render(fmt.Sprintf("%d / %d", visible, total)),
-		dim.Render("·"),
-		dim.Render("j/k move"),
+	if visible == total {
+		return dim.Render(fmt.Sprintf("%d", total))
 	}
-	for _, h := range hints {
-		parts = append(parts, dim.Render("·"), dim.Render(h.Key+" "+h.Label))
-	}
-	s := strings.Join(parts, " ")
-	for lipgloss.Width(s) > maxW && len(parts) > 3 {
-		parts = parts[:len(parts)-2]
-		s = strings.Join(parts, " ")
-	}
-	return s
+	return dim.Render(fmt.Sprintf("%d / %d", visible, total))
 }
 
-// detailsFootForView assembles the details pane's foot from the view's key
-// hints, skipping ↵/`/` which are already shown elsewhere.
-func detailsFootForView(v views.View) string {
-	hints := v.KeyHints()
-	dim := lipgloss.NewStyle().Foreground(theme.ColorMuted)
-	parts := []string{}
-	for _, h := range hints {
-		if h.Key == "/" || h.Key == "↵" {
-			continue
-		}
-		parts = append(parts, dim.Render(h.Key+" "+h.Label))
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, " · ")
+// detailsFootForView returns the details panel's foot. Currently empty:
+// the previous draft rendered the view's key hints, but the command bar
+// already shows the full keymap and duplicating it on the focus panel
+// added visual noise without adding information.
+func detailsFootForView(_ views.View) string {
+	return ""
 }
 
 // renderCmdBody returns the 2-line body content for the command panel.

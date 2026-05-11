@@ -16,7 +16,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/hermanu/klens/ui/components"
 	"github.com/hermanu/klens/ui/theme"
 )
 
@@ -77,18 +76,18 @@ func renderTopBarWide(inner int, cfg TopBarConfig) string {
 	logoRow0 := logoStyle.Render(KlensLogo[0])
 	logoRow1 := logoStyle.Render(KlensLogo[1])
 
+	// Right column intentionally dropped: the nav rail's CLUSTER footer
+	// already shows nodes/cpu/mem aggregates, and rendering them here too
+	// just doubled the noise (worse: this header would say "cpu —" when the
+	// aggregate isn't wired yet). KV grid gets the leftover width.
 	gap := "  "
-	const rightW = 16
-	kvW := max(inner-LogoWidth-len(gap)-rightW, 20)
+	kvW := max(inner-LogoWidth-len(gap), 20)
 
 	kvRow0 := kvLine(cfg, 0, kvW)
 	kvRow1 := kvLine(cfg, 1, kvW)
 
-	rightRow0 := rightMetaLine(cfg, 0)
-	rightRow1 := rightMetaLine(cfg, 1)
-
-	row0 := logoRow0 + gap + padRight(kvRow0, kvW) + " " + rightRow0
-	row1 := logoRow1 + gap + padRight(kvRow1, kvW) + " " + rightRow1
+	row0 := logoRow0 + gap + padRight(kvRow0, kvW)
+	row1 := logoRow1 + gap + padRight(kvRow1, kvW)
 	return row0 + "\n" + row1
 }
 
@@ -97,54 +96,53 @@ func kvLine(cfg TopBarConfig, line, w int) string {
 	hi := lipgloss.NewStyle().Foreground(theme.ColorFG)
 	hiBold := lipgloss.NewStyle().Foreground(theme.ColorFG).Bold(true)
 
+	// Normalised identity strings — EKS's `aws eks update-kubeconfig` sets
+	// kubeconfig context/cluster/user all to the same ARN, so showing each
+	// raw would print three identical 60-char strings. trimClusterIdent
+	// collapses them to the trailing path segment (e.g. "maisa-sdlc-eks").
+	ctx := trimClusterIdent(cfg.Context)
+	cluster := trimClusterIdent(cfg.Cluster)
+	user := trimClusterIdent(cfg.User)
+
 	if line == 0 {
-		// ctx <ctx>   cluster <cluster>   region <region>
+		// ctx <ctx>   [cluster <cluster>]?   region <region>
+		// cluster row is skipped when identical to ctx (EKS default state).
 		parts := []string{
-			dim.Render("ctx ") + hiBold.Render(safeStr(cfg.Context, "—")),
+			dim.Render("ctx ") + hiBold.Render(safeStr(ctx, "—")),
 		}
-		if c := strings.TrimSpace(cfg.Cluster); c != "" {
-			parts = append(parts, dim.Render("cluster ")+hi.Render(c))
+		if cluster != "" && cluster != ctx {
+			parts = append(parts, dim.Render("cluster ")+hi.Render(cluster))
 		}
-		if r := strings.TrimSpace(cfg.Region); r != "" {
+		if r := strings.TrimSpace(cfg.Region); r != "" && r != "—" {
 			parts = append(parts, dim.Render("region ")+hi.Render(r))
 		}
 		return joinFit(parts, "   ", w)
 	}
-	// line 1: user <user>   k8s <k8s>   uptime <uptime>
-	parts := []string{
-		dim.Render("user ") + hi.Render(safeStr(cfg.User, "—")),
-		dim.Render("k8s ") + hi.Render(safeStr(cfg.K8sVersion, "—")),
-		dim.Render("uptime ") + hi.Render(safeStr(cfg.Uptime, "—")),
+	// line 1: [user <user>]?   k8s <k8s>   [uptime <uptime>]?
+	// user row hidden when identical to ctx (EKS default).
+	parts := []string{}
+	if user != "" && user != ctx {
+		parts = append(parts, dim.Render("user ")+hi.Render(user))
+	}
+	parts = append(parts, dim.Render("k8s ")+hi.Render(safeStr(cfg.K8sVersion, "—")))
+	if up := strings.TrimSpace(cfg.Uptime); up != "" && up != "—" {
+		parts = append(parts, dim.Render("uptime ")+hi.Render(up))
 	}
 	return joinFit(parts, "   ", w)
 }
 
-func rightMetaLine(cfg TopBarConfig, line int) string {
-	dim := lipgloss.NewStyle().Foreground(theme.ColorMuted)
-	switch line {
-	case 0:
-		val := "—"
-		valColor := theme.ColorFG
-		if cfg.NodesTotal > 0 {
-			val = fmt.Sprintf("%d/%d", cfg.NodesReady, cfg.NodesTotal)
-			if cfg.NodesReady == cfg.NodesTotal {
-				valColor = theme.ColorOk
-			} else {
-				valColor = theme.ColorWarn
-			}
-		}
-		return dim.Render("nodes ") + lipgloss.NewStyle().Foreground(valColor).Bold(true).Render(val)
-	default:
-		spark := dim.Render("—")
-		if len(cfg.CPUSamples) > 0 {
-			spark = components.Sparkline(cfg.CPUSamples, 10, theme.ColorOk)
-		}
-		pct := "—"
-		if cfg.CPUPercent >= 0 {
-			pct = fmt.Sprintf("%d%%", cfg.CPUPercent)
-		}
-		return dim.Render("cpu ") + spark + " " + lipgloss.NewStyle().Foreground(theme.ColorFG).Render(pct)
+// trimClusterIdent collapses an ARN-style identity to its trailing
+// path segment so the kvLine doesn't show "arn:aws:eks:.../cluster/foo"
+// three times in a row. Non-ARN strings pass through unchanged.
+func trimClusterIdent(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "—" {
+		return s
 	}
+	if i := strings.LastIndex(s, "/"); i >= 0 && i < len(s)-1 {
+		return s[i+1:]
+	}
+	return s
 }
 
 func renderTopBarNarrow(inner int, cfg TopBarConfig) string {
