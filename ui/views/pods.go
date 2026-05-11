@@ -305,7 +305,7 @@ func (v PodsView) Details(width, height int) string {
 		{Label: "cpu", Value: fmt.Sprintf("%dm", int(cpuNow)), Samples: scaleSeries(series.cpu, scaleCPU)},
 		{Label: "mem", Value: fmt.Sprintf("%dMi", int(memNow)), Samples: scaleSeries(series.mem, scaleMem)},
 		{Label: "net↓", Value: fmt.Sprintf("%dKB/s", int(cpuNow*0.4+18)), Samples: netDown},
-		{Label: "net↑", Value: fmt.Sprintf("%dKB/s", int(memNow*0.2+8)), Samples: netUp},
+		{Label: "net↑", Value: fmt.Sprintf("%dKB/s", int(memNow*0.4+8)), Samples: netUp},
 	}
 
 	// Container summary: one entry derived from the pod's first segment
