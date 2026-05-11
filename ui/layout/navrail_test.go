@@ -15,8 +15,9 @@ func TestNavRail_DefaultActiveRow(t *testing.T) {
 			{Mnemonic: "3", Label: "svc", Count: 24},
 		},
 		Cluster: layout.ClusterMeta{
-			NodesReady: 9, NodesTotal: 9,
-			Pods: 25,
+			NodesReady: 9,
+			NodesTotal: 9,
+			Pods:       25,
 			CPUSamples: []float64{40, 52, 48, 60, 58, 62, 66, 70, 68, 62},
 			CPUPercent: 62,
 			MEMSamples: []float64{70, 72, 74, 76, 78, 76, 80, 78, 82, 78},

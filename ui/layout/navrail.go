@@ -78,7 +78,6 @@ func NavRail(width, height int, cfg NavRailConfig) string {
 	if spacer < 0 {
 		// Drop footer first.
 		footer = ""
-		footerH = 0
 		spacer = height - len(rows)
 		if spacer < 0 {
 			// Truncate items from the end. Keep active item visible.
