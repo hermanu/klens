@@ -43,13 +43,22 @@ const (
 	viewGenericDescribe // dedicated full-screen KV describe for non-pod resources (PVCs, etc.)
 )
 
+// Canonical resource names shared between viewKindName, paletteNameToView,
+// navRailConfig, and railOrder. Defined as constants to satisfy goconst.
+const (
+	viewNamePods        = "pods"
+	viewNameDeployments = "deployments"
+	viewNameServices    = "services"
+	viewNameSecrets     = "secrets"
+	viewNameConfigMaps  = "configmaps"
+	viewNameNamespaces  = "namespaces"
+	viewNameNodes       = "nodes"
+	viewNamePVCs        = "pvcs"
+)
+
 // Geometry — bordered-panel shell. Every pane carries its own 1-row border
 // top + bottom, so the chrome cost is higher than the previous outer-frame
 // shell. minDetailsAt unchanged (right column drops below 120 cols).
-//
-// The legacy constants (topBarHeight, cmdBarHeight, frameH, frameW) are kept
-// alongside the new ones because View() still uses them; Task 13 swaps the
-// renderer wholesale and the legacy block goes away with it.
 const (
 	navRailWidth     = 22
 	detailsWidth     = 44
@@ -59,12 +68,6 @@ const (
 	cmdBarRows       = 4   // 1 top border + 2 body + 1 bottom border
 	minDetailsAt     = 120 // unchanged — drop right column below this width
 	minNavRailAt     = 60  // below this, hide the rail too
-
-	// Legacy — used by the current View() body until Task 13's rewrite.
-	topBarHeight = 2 // 1 content row + 1 divider
-	cmdBarHeight = 1
-	frameH       = 2 // top + bottom border rows
-	frameW       = 2 // left + right border columns
 )
 
 // Model is the root Bubble Tea model. It owns all views, the input, the
@@ -179,21 +182,21 @@ func (m Model) persistState() {
 func viewKindName(v viewKind) string {
 	switch v {
 	case viewPods:
-		return "pods"
+		return viewNamePods
 	case viewDeployments:
-		return "deployments"
+		return viewNameDeployments
 	case viewServices:
-		return "services"
+		return viewNameServices
 	case viewSecrets:
-		return "secrets"
+		return viewNameSecrets
 	case viewConfigMaps:
-		return "configmaps"
+		return viewNameConfigMaps
 	case viewNamespaces:
-		return "namespaces"
+		return viewNameNamespaces
 	case viewNodes:
-		return "nodes"
+		return viewNameNodes
 	case viewPVCs:
-		return "pvcs"
+		return viewNamePVCs
 	default:
 		return "" // transient sub-views (logs, describe) are not persisted
 	}
@@ -724,21 +727,21 @@ func (m Model) updateGlobal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.isTopLevelList() {
 		switch msg.String() {
 		case "1":
-			return m.runCommand("pods")
+			return m.runCommand(viewNamePods)
 		case "2":
-			return m.runCommand("deployments")
+			return m.runCommand(viewNameDeployments)
 		case "3":
-			return m.runCommand("services")
+			return m.runCommand(viewNameServices)
 		case "4":
-			return m.runCommand("nodes")
+			return m.runCommand(viewNameNodes)
 		case "5":
-			return m.runCommand("configmaps")
+			return m.runCommand(viewNameConfigMaps)
 		case "6":
-			return m.runCommand("secrets")
+			return m.runCommand(viewNameSecrets)
 		case "7":
-			return m.runCommand("namespaces")
+			return m.runCommand(viewNameNamespaces)
 		case "8":
-			return m.runCommand("pvcs")
+			return m.runCommand(viewNamePVCs)
 		case "[":
 			return m.runCommand(cyclePrev(viewKindName(m.current)))
 		case "]":
@@ -779,7 +782,8 @@ func (m Model) runCommand(name string) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "context":
 		return m.openContextPicker(), nil
-	case "pods", "deployments", "services", "secrets", "configmaps", "namespaces", "nodes", "pvcs":
+	case viewNamePods, viewNameDeployments, viewNameServices, viewNameSecrets,
+		viewNameConfigMaps, viewNameNamespaces, viewNameNodes, viewNamePVCs:
 		m.current = paletteNameToView(name)
 		m.history = nil
 		// Non-drill entry to pods clears any stale scope so the user
@@ -949,115 +953,145 @@ func (m Model) reloadCmd() tea.Cmd {
 	}
 }
 
-// View composes the modern shell:
+// View composes the bordered-panel shell:
 //
-//	┌─────────────────────────────────────────────────────────────────┐
-//	│ ctx maisa-sdlc · v1.30 · ▆ europa  ── K L E N S ──     ● live   │ top bar
-//	├─────────────────────────────────────────────────────────────────┤
-//	│ ▌1 pods 4/23   2 deployments 14   3 services 12   ...           │ nav strip
-//	│ filter chips ........................                           │ chips
-//	│                                                                 │
-//	│ table                                          │ details        │ content
-//	│                                                                 │
-//	├─────────────────────────────────────────────────────────────────┤
-//	│ › / type to filter         ↵ describe   l logs   / filter   ?   │ command bar
-//	└─────────────────────────────────────────────────────────────────┘
+//	┌─ ◎ KLENS v0.3.0 · build … ──────────────── ● watching ─┐  top bar
+//	│  block logo   ctx … cluster …    nodes 9/9              │
+//	│               user … k8s …       cpu ▃▅▇█▇ 62%          │
+//	└──────────────────────────────────────────────────────────┘
+//	┌─ RESOURCES ─┐ ┌─ PODS [4/25] ─────────┐ ┌─ FOCUS ↵ desc ─┐
+//	│ ▌ 1 pods 23 │ │   NS  NAME  READY ... │ │ api-gateway-…  │
+//	│   2 deps 18 │ │ ▌ pl  api-… 2/2  ...  │ │ ...            │
+//	│   ...       │ │ ...                   │ │ METRICS / CONT │
+//	└─ [ ] cycle ─┘ └─ 4 / 25 · j/k …───────┘ └ l logs · s sh ─┘
+//	┌─ COMMAND ────────────────────────────────────────────────┐
+//	│ › / type to filter…                                       │
+//	│ <↵> describe  <l> logs  <s> shell  <e> edit  ...          │
+//	└───────────────────────────────────────────────────────────┘
 //
-// The vertical nav rail was replaced by a horizontal strip directly under the
-// top bar — gives the table full horizontal real estate, drops the cluster-
-// meta block (cpu/mem are unwired anyway), and consolidates the count onto
-// the active nav item so it doesn't duplicate the resource label or scope.
-//
-// The palette overlay replaces the entire frame when open; lipgloss has no
-// real cell-coordinate overlay support, so this matches klens's pre-redesign
-// behaviour.
+// Modal palette and help overlays still paint on top via Overlay.
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return ""
 	}
-	// Startup cluster picker takes over the whole frame — no client to drive
-	// any view yet, so we render it on a blank canvas instead of the shell.
 	if m.showContextPicker {
 		return components.ContextPicker(m.width, m.height,
 			m.availableContexts, m.contextPickerSelected, m.contextPickerErr)
 	}
 	v := m.currentView()
-
 	visible, total := v.Count()
-	top := layout.TopBar(m.width, layout.TopBarConfig{
-		Context:      fallback(m.cluster.Context, "—"),
-		Cluster:      fallback(m.cluster.Cluster, "—"),
-		User:         fallback(m.cluster.User, "—"),
-		K8sVersion:   fallback(m.cluster.K8sVersion, "—"),
-		Region:       fallback(m.cluster.Region, "—"),
-		KlensVer:     fallback(m.cluster.KlensVer, "dev"),
-		Namespace:    fallback(m.namespace, "all"),
-		Resource:     v.Title(),
-		Live:         m.client != nil,
-		VisibleCount: visible,
-		TotalCount:   total,
-		Totals:       m.totals(),
-	})
 
-	// Sub-views (logs, describe, genericDescribe) take the full content area —
-	// hide the right details pane so their content isn't squashed.
-	showDetails := m.width >= minDetailsAt &&
-		m.current != viewLogs &&
-		m.current != viewDescribe &&
-		m.current != viewGenericDescribe
-
-	// Inline ex-mode docks a one-line suggestions strip just above the
-	// command bar, so we have to budget that row off the content area or the
-	// table would push the prompt off-screen.
+	// Heights
+	topBarH := topBarRowsWide
+	if m.width < topBarWideAt {
+		topBarH = topBarRowsNarrow
+	}
 	extraBottom := 0
 	if m.commandMode {
 		extraBottom = 1
 	}
-	// Inner content height = total height minus everything else, including
-	// the focus frame's two border rows.
-	contentH := m.height - topBarHeight - cmdBarHeight - extraBottom - frameH
-	if contentH < 1 {
-		contentH = 1
-	}
+	midH := max(m.height-topBarH-cmdBarRows-extraBottom, 5)
 
-	innerW := m.width - frameW
-	if innerW < 1 {
-		innerW = 1
-	}
+	// Widths
+	showRail := m.width >= minNavRailAt && m.isTopLevelList()
+	showDetails := m.width >= minDetailsAt &&
+		m.current != viewLogs &&
+		m.current != viewDescribe &&
+		m.current != viewGenericDescribe
+	railW := 0
 	detW := 0
+	if showRail {
+		railW = navRailWidth
+	}
 	if showDetails {
 		detW = detailsWidth
 	}
-	midW := innerW - detW
+	tableW := max(m.width-railW-detW, 20)
 
-	tbl := v.Table(midW, contentH)
-	center := tbl
+	cm := m.clusterMeta()
 
-	cols := []string{center}
-	if showDetails {
-		cols = append(cols, v.Details(detW, contentH))
+	// 1. Top bar panel
+	topCfg := layout.TopBarConfig{
+		Context:    fallback(m.cluster.Context, "—"),
+		Cluster:    fallback(m.cluster.Cluster, "—"),
+		User:       fallback(m.cluster.User, "—"),
+		K8sVersion: fallback(m.cluster.K8sVersion, "—"),
+		Region:     fallback(m.cluster.Region, "—"),
+		KlensVer:   fallback(m.cluster.KlensVer, m.buildInfo.Version),
+		BuildID:    m.buildID(),
+		Uptime:     cm.Uptime,
+		NodesReady: cm.NodesReady,
+		NodesTotal: cm.NodesTotal,
+		CPUSamples: cm.CPUSamples,
+		CPUPercent: cm.CPUPercent,
+		Namespace:  fallback(m.namespace, "all"),
+		Resource:   v.Title(),
+		Live:       m.client != nil,
 	}
-	row := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
+	pulseOn := (time.Now().UnixMilli()/700)%2 == 0
+	topPanel := components.Panel(components.PanelConfig{
+		Width:  m.width,
+		Height: topBarH,
+		Title:  layout.TopBarTitle(topCfg),
+		Foot:   layout.TopBarFoot(pulseOn, topCfg.Live),
+		Body:   layout.TopBar(m.width-2, topCfg),
+	})
 
-	// Wrap the content in a rounded focus frame. K9s-style accent border
-	// makes the active pane unambiguous and gives the table edges a clean
-	// boundary; we keep the resource title in the top bar rather than
-	// inset on the border (lipgloss has no native inset-label support and
-	// ANSI-aware splicing is fragile across terminal emulators).
-	row = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.ColorBorderFaint).
-		Render(row)
+	// 2. Mid row: rail | table | details
+	var midPanels []string
+	if showRail {
+		railBody := layout.NavRail(railW-2, midH-2, m.navRailConfig(cm))
+		railPanel := components.Panel(components.PanelConfig{
+			Width:  railW,
+			Height: midH,
+			Title:  lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render("RESOURCES"),
+			Foot:   lipgloss.NewStyle().Foreground(theme.ColorMuted).Render("[ ] cycle"),
+			Body:   railBody,
+		})
+		midPanels = append(midPanels, railPanel)
+	}
 
-	// Bottom region. In default mode this is just the command bar. In inline
-	// ex-mode (`:` typed), we replace it with a 2-line block: a suggestions
-	// strip with the highlighted match plus the `: <input>` prompt. The flash
-	// banner overrides everything when set, so the user sees feedback before
-	// the next keystroke clears it.
-	bottom := m.renderBottom(v)
+	tableBody := v.Table(tableW-2, midH-2)
+	tableTitle := tablePanelTitle(v.Title(), visible, total, m.pods.Scope())
+	tableFoot := tableFootForView(v, visible, total, tableW-4)
+	tablePanel := components.Panel(components.PanelConfig{
+		Width:  tableW,
+		Height: midH,
+		Title:  tableTitle,
+		Foot:   tableFoot,
+		Active: !m.commandMode && !m.filterFocused && !m.showPalette,
+		Body:   tableBody,
+	})
+	midPanels = append(midPanels, tablePanel)
 
-	frame := lipgloss.JoinVertical(lipgloss.Left, top, row, bottom)
+	if showDetails {
+		detBody := v.Details(detW-2, midH-2)
+		detPanel := components.Panel(components.PanelConfig{
+			Width:  detW,
+			Height: midH,
+			Title:  lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render("FOCUS"),
+			Foot:   detailsFootForView(v),
+			Body:   detBody,
+		})
+		midPanels = append(midPanels, detPanel)
+	}
+	midRow := lipgloss.JoinHorizontal(lipgloss.Top, midPanels...)
 
+	// 3. Command bar panel. ex-mode and flash banner override the default
+	// 2-line body so the inline-`:` UX and the unknown-command flash from
+	// the previous shell still surface.
+	cmdBody := m.renderCmdBody(v, m.width-2)
+	cmdPanel := components.Panel(components.PanelConfig{
+		Width:  m.width,
+		Height: cmdBarRows,
+		Title:  lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render("COMMAND"),
+		Active: m.commandMode || m.filterFocused,
+		Body:   cmdBody,
+	})
+
+	frame := lipgloss.JoinVertical(lipgloss.Left, topPanel, midRow, cmdPanel)
+
+	// Modal palette / help overlays (existing logic preserved).
 	if m.showPalette {
 		modal := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -1066,14 +1100,127 @@ func (m Model) View() string {
 			Render(m.palette.View(60))
 		return overlayCentered(frame, modal, m.width, m.height)
 	}
-	// Help overlay also paints over the frame so the user keeps context while
-	// reading the keymap. Source of truth for keys is the active view's
-	// KeyMap() when implemented, falling back to KeyHints().
 	if m.showHelp {
 		body := components.HelpBody(v.Title(), helpSpecs(v))
 		return overlayCentered(frame, body, m.width, m.height)
 	}
 	return frame
+}
+
+// navRailConfig builds the NavRailConfig from current model state.
+func (m Model) navRailConfig(cm clusterMeta) layout.NavRailConfig {
+	items := []layout.NavItem{
+		{Mnemonic: "1", Label: viewNamePods, Active: m.current == viewPods},
+		{Mnemonic: "2", Label: viewNameDeployments, Active: m.current == viewDeployments},
+		{Mnemonic: "3", Label: viewNameServices, Active: m.current == viewServices},
+		{Mnemonic: "4", Label: viewNameNodes, Active: m.current == viewNodes},
+		{Mnemonic: "5", Label: viewNameConfigMaps, Active: m.current == viewConfigMaps},
+		{Mnemonic: "6", Label: viewNameSecrets, Active: m.current == viewSecrets},
+		{Mnemonic: "7", Label: viewNameNamespaces, Active: m.current == viewNamespaces},
+		{Mnemonic: "8", Label: viewNamePVCs, Active: m.current == viewPVCs},
+	}
+	_, p := m.pods.Count()
+	_, d := m.deployments.Count()
+	_, s := m.services_.Count()
+	_, n := m.nodes.Count()
+	_, c := m.configmaps.Count()
+	_, sec := m.secrets.Count()
+	_, ns := m.namespaces.Count()
+	_, pv := m.pvcs.Count()
+	counts := []int{p, d, s, n, c, sec, ns, pv}
+	for i := range items {
+		items[i].Count = counts[i]
+	}
+	return layout.NavRailConfig{
+		Items: items,
+		Cluster: layout.ClusterMeta{
+			NodesReady: cm.NodesReady,
+			NodesTotal: cm.NodesTotal,
+			Pods:       cm.Pods,
+			CPUSamples: cm.CPUSamples,
+			MEMSamples: cm.MEMSamples,
+			CPUPercent: cm.CPUPercent,
+			MEMPercent: cm.MEMPercent,
+		},
+	}
+}
+
+// tablePanelTitle renders the table panel's notched title, including the
+// drill scope chip when set on the pods view.
+func tablePanelTitle(resource string, visible, total int, scope string) string {
+	title := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render(strings.ToUpper(resource))
+	count := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(fmt.Sprintf(" [%d]", total))
+	if visible != total {
+		count = lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(
+			fmt.Sprintf(" [%d/%d]", visible, total))
+	}
+	if scope != "" {
+		count = lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(
+			fmt.Sprintf(" [%d/%d · scope: %s]", visible, total, scope))
+	}
+	return title + count
+}
+
+// tableFootForView assembles the table's bottom-right foot string.
+func tableFootForView(v views.View, visible, total, maxW int) string {
+	hints := v.KeyHints()
+	dim := lipgloss.NewStyle().Foreground(theme.ColorMuted)
+	parts := []string{
+		dim.Render(fmt.Sprintf("%d / %d", visible, total)),
+		dim.Render("·"),
+		dim.Render("j/k move"),
+	}
+	for _, h := range hints {
+		parts = append(parts, dim.Render("·"), dim.Render(h.Key+" "+h.Label))
+	}
+	s := strings.Join(parts, " ")
+	for lipgloss.Width(s) > maxW && len(parts) > 3 {
+		parts = parts[:len(parts)-2]
+		s = strings.Join(parts, " ")
+	}
+	return s
+}
+
+// detailsFootForView assembles the details pane's foot from the view's key
+// hints, skipping ↵/`/` which are already shown elsewhere.
+func detailsFootForView(v views.View) string {
+	hints := v.KeyHints()
+	dim := lipgloss.NewStyle().Foreground(theme.ColorMuted)
+	parts := []string{}
+	for _, h := range hints {
+		if h.Key == "/" || h.Key == "↵" {
+			continue
+		}
+		parts = append(parts, dim.Render(h.Key+" "+h.Label))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " · ")
+}
+
+// renderCmdBody returns the 2-line body content for the command panel.
+// Priority order: ex-mode (`:`) > flash banner > default hints row. All
+// three return strings exactly 2 rows tall so the cmd panel height stays
+// constant (no reflow when entering/leaving ex-mode).
+func (m Model) renderCmdBody(v views.View, innerW int) string {
+	if innerW < 1 {
+		innerW = 1
+	}
+	if m.commandMode {
+		cmds := components.DefaultCommands()
+		suggestions := components.FilterCommands(cmds, m.commandInput.Value())
+		strip := renderSuggestionsStrip(innerW, suggestions, m.commandSel)
+		prompt := renderCommandPrompt(innerW, m.commandInput.View())
+		return strip + "\n" + prompt
+	}
+	if m.flashErr != "" {
+		banner := renderFlashBanner(innerW, m.flashErr)
+		return banner + "\n" + strings.Repeat(" ", innerW)
+	}
+	hints := append([]layout.KeyHint{}, v.KeyHints()...)
+	hints = append(hints, layout.KeyHint{Key: "?", Label: "help"})
+	return layout.CommandBar(innerW, m.commandBarInput(), hints)
 }
 
 // overlayCentered paints `modal` over `frame` centered in (width, height).
@@ -1189,42 +1336,18 @@ func (m Model) commandBarInput() string {
 	return m.filterInput.View()
 }
 
-// renderBottom assembles the bottom of the frame in three flavors, in
-// priority order:
-//   - Inline ex-mode (`:`): suggestions strip + `: <input>` prompt (2 rows).
-//   - Flash banner: a 1-row red banner replacing the command bar to surface
-//     transient errors (e.g. unknown command), auto-cleared by flashClearMsg.
-//   - Default: the regular layout.CommandBar with key hints.
-//
-// The 2-row ex-mode geometry is budgeted in View() via extraBottom; flash
-// keeps the original 1-row footprint so it doesn't reflow the table.
-func (m Model) renderBottom(v views.View) string {
-	if m.commandMode {
-		cmds := components.DefaultCommands()
-		suggestions := components.FilterCommands(cmds, m.commandInput.Value())
-		strip := renderSuggestionsStrip(m.width, suggestions, m.commandSel)
-		prompt := renderCommandPrompt(m.width, m.commandInput.View())
-		return lipgloss.JoinVertical(lipgloss.Left, strip, prompt)
-	}
-	if m.flashErr != "" {
-		return renderFlashBanner(m.width, m.flashErr)
-	}
-	hints := append([]layout.KeyHint{}, v.KeyHints()...)
-	hints = append(hints, layout.KeyHint{Key: "?", Label: "help"})
-	return layout.CommandBar(m.width, m.commandBarInput(), hints)
-}
-
 // renderSuggestionsStrip renders the type-ahead candidates docked above the
 // `:` prompt. The selected item is bolded in accent; siblings are dimmed.
 // Long lists silently truncate at the right edge — the modal palette
 // (ctrl+p) is the discoverability surface for the full set.
+// width is the INNER content width (panel border already excluded by caller).
 func renderSuggestionsStrip(width int, suggestions []components.Command, selected int) string {
 	if width < 1 {
 		width = 1
 	}
 	if len(suggestions) == 0 {
 		empty := theme.Faint.Render("no matches — Tab autocompletes, Esc cancels")
-		return theme.Panel.Width(width).Padding(0, 1).Render(empty)
+		return lipgloss.NewStyle().Width(width).Render(empty)
 	}
 	parts := make([]string, 0, len(suggestions))
 	for i, s := range suggestions {
@@ -1245,14 +1368,15 @@ func renderSuggestionsStrip(width int, suggestions []components.Command, selecte
 	line := strings.Join(parts, "  ")
 	// Width-clip at the right so an overflow strip doesn't push the prompt
 	// onto a second visual row.
-	if w := lipgloss.Width(line); w > width-2 {
-		line = lipgloss.NewStyle().MaxWidth(width-4).Render(line) + theme.Faint.Render(" …")
+	if w := lipgloss.Width(line); w > width {
+		line = lipgloss.NewStyle().MaxWidth(width-2).Render(line) + theme.Faint.Render(" …")
 	}
-	return theme.Panel.Width(width).Padding(0, 1).Render(line)
+	return lipgloss.NewStyle().Width(width).Render(line)
 }
 
 // renderCommandPrompt is the inline ex-mode input row — accent ":" prompt,
 // bubbles textinput in the middle, and a couple of hint chips on the right.
+// width is the INNER content width (panel border already excluded by caller).
 func renderCommandPrompt(width int, inputView string) string {
 	if width < 1 {
 		width = 1
@@ -1271,21 +1395,18 @@ func renderCommandPrompt(width int, inputView string) string {
 	}
 	right := strings.Join(chips, "  ")
 
-	inner := width - 2
-	if inner < 1 {
-		inner = 1
-	}
-	gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
 	}
 	line := left + strings.Repeat(" ", gap) + right
-	return theme.Panel.Width(width).Padding(0, 1).Render(line)
+	return lipgloss.NewStyle().Width(width).Render(line)
 }
 
 // renderFlashBanner shows a transient red banner for unknown-command errors
 // from the inline ex-mode. flashClearMsg removes it after flashTTL so it
 // doesn't linger past the user's next interaction.
+// width is the INNER content width (panel border already excluded by caller).
 func renderFlashBanner(width int, err string) string {
 	if width < 1 {
 		width = 1
@@ -1294,7 +1415,7 @@ func renderFlashBanner(width int, err string) string {
 		Foreground(theme.ColorError).
 		Bold(true)
 	body := style.Render("✕ "+err) + theme.Faint.Render("  (any key to dismiss)")
-	return theme.Panel.Width(width).Padding(0, 1).Render(body)
+	return lipgloss.NewStyle().Width(width).Render(body)
 }
 
 // currentView returns the view for the active viewKind as a views.View
@@ -1327,33 +1448,23 @@ func (m Model) currentView() views.View {
 	return m.pods
 }
 
-// totals returns the legacy aggregate counter set. The top bar's TopBarConfig
-// still has a Totals field for backwards compat; the bar itself no longer
-// renders it (the resource label + V/T count is shown inline instead).
-func (m Model) totals() layout.Totals {
-	_, p := m.pods.Count()
-	_, d := m.deployments.Count()
-	_, s := m.services_.Count()
-	return layout.Totals{Pods: p, Deployments: d, Services: s}
-}
-
 func paletteNameToView(name string) viewKind {
 	switch name {
-	case "pods":
+	case viewNamePods:
 		return viewPods
-	case "deployments":
+	case viewNameDeployments:
 		return viewDeployments
-	case "services":
+	case viewNameServices:
 		return viewServices
-	case "secrets":
+	case viewNameSecrets:
 		return viewSecrets
-	case "configmaps":
+	case viewNameConfigMaps:
 		return viewConfigMaps
-	case "namespaces":
+	case viewNameNamespaces:
 		return viewNamespaces
-	case "nodes":
+	case viewNameNodes:
 		return viewNodes
-	case "pvcs":
+	case viewNamePVCs:
 		return viewPVCs
 	}
 	return viewPods
@@ -1459,35 +1570,28 @@ func (m Model) isTopLevelList() bool {
 // railOrder is the canonical resource-rail order — must match the rail's
 // item slice exactly so `[`/`]` cycle through the same set the rail shows.
 var railOrder = []string{
-	"pods", "deployments", "services", "nodes",
-	"configmaps", "secrets", "namespaces", "pvcs",
+	viewNamePods, viewNameDeployments, viewNameServices, viewNameNodes,
+	viewNameConfigMaps, viewNameSecrets, viewNameNamespaces, viewNamePVCs,
 }
 
 // cyclePrev returns the previous rail entry, wrapping at the start. Returns
-// "pods" if `current` is unknown.
+// viewNamePods if `current` is unknown.
 func cyclePrev(current string) string {
 	for i, name := range railOrder {
 		if name == current {
 			return railOrder[(i-1+len(railOrder))%len(railOrder)]
 		}
 	}
-	return "pods"
+	return viewNamePods
 }
 
-// cycleNext returns the next rail entry, wrapping at the end. Returns "pods"
-// if `current` is unknown.
+// cycleNext returns the next rail entry, wrapping at the end. Returns
+// viewNamePods if `current` is unknown.
 func cycleNext(current string) string {
 	for i, name := range railOrder {
 		if name == current {
 			return railOrder[(i+1)%len(railOrder)]
 		}
 	}
-	return "pods"
+	return viewNamePods
 }
-
-// Compile-time references keep the interim helpers (clusterMeta, buildID)
-// alive until Task 13's View() rewrite consumes them. Remove after Task 13.
-var (
-	_ = Model.clusterMeta
-	_ = Model.buildID
-)
