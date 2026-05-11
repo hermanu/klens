@@ -124,33 +124,26 @@ func NavRail(width, height int, cfg NavRailConfig) string {
 
 func renderNavItem(it NavItem, width int) string {
 	const mnemonicW = 2
-	const labelW = 12
-	// 2 for cursor prefix, gaps between segments.
-	countW := max(width-2-mnemonicW-1-labelW-1, 3)
+	// labelW absorbs whatever's left after cursor(2) + mnemonic(2) + gap(1).
+	// The per-resource count column was dropped here: the table panel's
+	// title `[N]` already shows it, and at narrow rail widths the count
+	// got truncated mid-digit anyway (e.g. 22 → "2").
+	labelW := max(width-2-mnemonicW-1, 1)
 
 	cursor := "  "
 	mnemonicStyle := lipgloss.NewStyle().Foreground(theme.ColorMuted2)
 	labelStyle := lipgloss.NewStyle().Foreground(theme.ColorFG)
-	countStyle := lipgloss.NewStyle().Foreground(theme.ColorMuted2)
 
 	if it.Active {
 		cursor = lipgloss.NewStyle().Foreground(theme.ColorAccent).Render("▌ ")
 		mnemonicStyle = lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
 		labelStyle = lipgloss.NewStyle().Foreground(theme.ColorFG).Bold(true)
-		countStyle = lipgloss.NewStyle().Foreground(theme.ColorMuted)
-	}
-
-	count := "—"
-	if it.Count >= 0 {
-		count = fmt.Sprintf("%d", it.Count)
 	}
 
 	return cursor +
 		mnemonicStyle.Render(padRightLayout(it.Mnemonic, mnemonicW)) +
 		" " +
-		labelStyle.Render(padRightLayout(it.Label, labelW)) +
-		" " +
-		countStyle.Render(padLeftLayout(count, countW))
+		labelStyle.Render(padRightLayout(it.Label, labelW))
 }
 
 func renderClusterMeta(cm ClusterMeta, width int) string {
@@ -212,12 +205,4 @@ func padRightLayout(s string, n int) string {
 		return s
 	}
 	return s + strings.Repeat(" ", n-w)
-}
-
-func padLeftLayout(s string, n int) string {
-	w := lipgloss.Width(s)
-	if w >= n {
-		return s
-	}
-	return strings.Repeat(" ", n-w) + s
 }

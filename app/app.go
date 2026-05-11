@@ -222,7 +222,12 @@ type ClusterInfo struct {
 func New(kubeconfigOverride, namespaceOverride string) (Model, error) {
 	cfg, err := config.Load("")
 	if err != nil {
-		return Model{}, fmt.Errorf("load config: %w", err)
+		// A broken ~/.klens/config.yaml (manual edit, stale fields from an
+		// older release, etc.) used to crash the binary at startup. Surface
+		// the parse error and proceed with whatever Load could recover plus
+		// defaults — losing the persisted namespace + last view is preferable
+		// to refusing to launch.
+		fmt.Fprintf(os.Stderr, "warn: ignoring broken config: %v\n", err)
 	}
 	// CLI-flag overrides take precedence over the persisted config.
 	// Empty strings fall through, leaving cfg.Namespace as either the
