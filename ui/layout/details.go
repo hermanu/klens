@@ -1,6 +1,20 @@
+// Package layout — DefaultDetails right-column dossier.
+//
+// Renders the focused-item dossier as a vertical stack of sections:
+//
+//	header   — title (bold) + subtitle (status line)
+//	KVs      — short label/value table
+//	METRICS  — cpu/mem/net sparklines (pods only)
+//	CONTAINERS — first-container summary (pods only)
+//
+// Sections render only when their data is non-empty so non-pod views get a
+// trimmed dossier (header + KVs). Width is clamped to a sensible minimum.
+// DefaultDetails returns INTERIOR BODY ONLY — no border, no per-row padding.
+// The caller wraps the return value in components.Panel.
 package layout
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -8,145 +22,145 @@ import (
 	"github.com/hermanu/klens/ui/theme"
 )
 
-// DefaultDetails renders the right-pane details for a focused row.
-// All non-pod views build a DetailsBlock with just KVs and call this.
-// Pods passes Sparks + LogTail to render the live metrics + tailing logs.
-//
-// Returns a multi-line string clamped to `width` columns and at most `height`
-// rows. If the block is empty (no Title) returns "" (caller can hide the pane).
+// DefaultDetails renders the right-pane dossier for a focused row. The
+// caller wraps the return value in a Panel — this function returns interior
+// content only (no border, no per-row padding).
 func DefaultDetails(width, height int, b DetailsBlock) string {
 	if b.Title == "" {
 		return ""
 	}
-	if width < 12 {
-		width = 12
+	if width < 24 {
+		width = 24
 	}
 	if height < 4 {
 		height = 4
 	}
+	inner := width
 
-	// The pane has a left border + 1-col inside padding (matches the JSX
-	// borderLeft/padding). All sections render into `inner` columns.
-	const borderW = 1
-	const padW = 1
-	inner := width - borderW - padW*2
-	if inner < 4 {
-		inner = 4
-	}
+	header := renderDetailsHeader(b, inner)
+	kvs := renderDetailsKVs(b.KVs, inner)
+	metrics := renderDetailsMetrics(b.Sparks, inner)
+	containers := renderDetailsContainers(b.Containers, inner)
 
-	// ── 1. Header ─────────────────────────────────────────────────────
-	header := []string{
-		theme.Faint.Render("FOCUSED ITEM"),
-		lipgloss.NewStyle().Foreground(theme.ColorFG).Render(truncToWidth(b.Title, inner)),
-	}
-	if b.Subtitle != "" {
-		header = append(header, theme.Faint.Render(truncToWidth(b.Subtitle, inner)))
-	}
+	sections := [][]string{header, kvs, metrics, containers}
 
-	// ── 2. Live metrics ──────────────────────────────────────────────
-	var metrics []string
-	if len(b.Sparks) > 0 {
-		metrics = append(metrics, theme.Faint.Render("LIVE · 60s"))
-		// Layout: <4-char label> <sparkline> <right-aligned value>
-		const labelW = 4
-		const valueW = 8
-		barW := inner - labelW - 1 - valueW - 1
-		if barW < 4 {
-			barW = 4
-		}
-		for _, m := range b.Sparks {
-			color := lipgloss.Color(m.Color)
-			if m.Color == "" {
-				color = theme.ColorAccent
-			}
-			label := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(padRight(m.Label, labelW))
-			bar := components.Sparkline(m.Samples, barW, color)
-			value := lipgloss.NewStyle().Foreground(theme.ColorFG).Render(padLeft(m.Value, valueW))
-			metrics = append(metrics, label+" "+bar+" "+value)
-		}
-	}
-
-	// ── 3. Spec ──────────────────────────────────────────────────────
-	var spec []string
-	if len(b.KVs) > 0 {
-		spec = append(spec, theme.Faint.Render("SPEC"))
-		const keyW = 10
-		for _, kv := range b.KVs {
-			k := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(padRight(kv.Key, keyW))
-			vColor := theme.ColorFG
-			if kv.Warn {
-				vColor = theme.ColorWarn
-			}
-			vMax := inner - keyW - 1
-			if vMax < 1 {
-				vMax = 1
-			}
-			v := lipgloss.NewStyle().Foreground(vColor).Render(truncToWidth(kv.Value, vMax))
-			spec = append(spec, k+" "+v)
-		}
-	}
-
-	// The right pane intentionally does NOT show a log tail — `l` opens a
-	// dedicated full-screen logs view. Duplicating tail lines here added no
-	// information density and stole vertical space from SPEC/metrics.
-
-	// ── compose with single-line dividers between sections ───────────
-	div := lipgloss.NewStyle().Foreground(theme.ColorBorderFaint).
-		Render(strings.Repeat("─", inner))
-
-	sections := [][]string{header, metrics, spec}
-	body := []string{}
+	var body []string
 	for _, sec := range sections {
 		if len(sec) == 0 {
 			continue
 		}
 		if len(body) > 0 {
-			body = append(body, div)
+			body = append(body, "")
 		}
 		body = append(body, sec...)
 	}
 
-	// Clamp total rows to height; top of header always wins.
 	if len(body) > height {
 		body = body[:height]
 	}
-
-	// Pad with empty rows so the pane fills the full requested height —
-	// otherwise the left border ends mid-pane and the user reads it as a
-	// "floating" details panel.
 	for len(body) < height {
 		body = append(body, "")
 	}
+	return strings.Join(body, "\n")
+}
 
-	// Apply the left border + 1-col padding to every row, including the
-	// padding rows, so the border glyph runs top-to-bottom and the pane
-	// "closes" at the bottom of the content area.
-	leftBorder := lipgloss.NewStyle().Foreground(theme.ColorBorder).Render("│")
-	out := make([]string, 0, len(body))
-	for _, row := range body {
-		padded := row + strings.Repeat(" ", maxInt(0, inner-lipgloss.Width(row)))
-		out = append(out, leftBorder+" "+padded+" ")
+func renderDetailsHeader(b DetailsBlock, inner int) []string {
+	title := lipgloss.NewStyle().Foreground(theme.ColorFG).Bold(true).Render(truncToWidth(b.Title, inner))
+	rows := []string{title}
+	if b.Subtitle != "" {
+		rows = append(rows, lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(truncToWidth(b.Subtitle, inner)))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, out...)
+	return rows
+}
+
+func renderDetailsKVs(kvs []KV, inner int) []string {
+	if len(kvs) == 0 {
+		return nil
+	}
+	const keyW = 10
+	rows := make([]string, 0, len(kvs))
+	for _, kv := range kvs {
+		k := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(padRight(kv.Key, keyW))
+		vColor := theme.ColorFG
+		if kv.Warn {
+			vColor = theme.ColorWarn
+		}
+		maxV := max(inner-keyW-1, 1)
+		v := lipgloss.NewStyle().Foreground(vColor).Render(truncToWidth(kv.Value, maxV))
+		rows = append(rows, k+" "+v)
+	}
+	return rows
+}
+
+func renderDetailsMetrics(sparks []MetricSeries, inner int) []string {
+	if len(sparks) == 0 {
+		return nil
+	}
+	const labelW = 5
+	const valueW = 8
+	// barW: leftover columns after label + space + value + space. Clamp to >=4
+	// so very narrow widths still get a compressed sparkline rather than
+	// overflowing the row.
+	barW := max(inner-labelW-1-valueW-1, 4)
+
+	header := lipgloss.NewStyle().Foreground(theme.ColorMuted).Bold(true).Render("METRICS · last 60s")
+	divider := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render(strings.Repeat("─", min(inner, 20)))
+
+	rows := []string{header, divider}
+	for _, m := range sparks {
+		color := lipgloss.Color(m.Color)
+		if m.Color == "" {
+			color = theme.ColorAccent
+		}
+		label := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(padRight(m.Label, labelW))
+		bar := components.Sparkline(m.Samples, barW, color)
+		value := lipgloss.NewStyle().Foreground(theme.ColorFG).Render(padLeft(m.Value, valueW))
+		rows = append(rows, label+" "+bar+" "+value)
+	}
+	return rows
+}
+
+func renderDetailsContainers(cs []ContainerSummary, inner int) []string {
+	if len(cs) == 0 {
+		return nil
+	}
+	header := lipgloss.NewStyle().Foreground(theme.ColorMuted).Bold(true).Render("CONTAINERS")
+	divider := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render(strings.Repeat("─", min(inner, 20)))
+
+	rows := []string{header, divider}
+	for _, c := range cs {
+		statusColor := theme.StatusStyleFor(c.Status).Dot
+		arrow := lipgloss.NewStyle().Foreground(theme.ColorAccent).Render("▸ ")
+		name := lipgloss.NewStyle().Foreground(theme.ColorFG).Render(c.Name)
+		statusStr := lipgloss.NewStyle().Foreground(statusColor).Render(c.Status)
+		rstColor := theme.ColorMuted
+		if c.Restarts > 0 {
+			rstColor = theme.ColorWarn
+		}
+		rst := lipgloss.NewStyle().Foreground(rstColor).Render(fmt.Sprintf("rst %d", c.Restarts))
+		rows = append(rows, arrow+name+"   "+statusStr+"   "+rst)
+
+		if c.Image != "" {
+			imgKey := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render("  image  ")
+			imgVal := lipgloss.NewStyle().Foreground(theme.ColorFG).Render(truncToWidth(c.Image, max(inner-10, 1)))
+			rows = append(rows, imgKey+imgVal)
+		}
+	}
+	return rows
 }
 
 func padLeft(s string, n int) string {
-	if w := lipgloss.Width(s); w >= n {
+	w := lipgloss.Width(s)
+	if w >= n {
 		return s
 	}
-	return strings.Repeat(" ", n-lipgloss.Width(s)) + s
+	return strings.Repeat(" ", n-w) + s
 }
 
 func padRight(s string, n int) string {
-	if w := lipgloss.Width(s); w >= n {
+	w := lipgloss.Width(s)
+	if w >= n {
 		return s
 	}
-	return s + strings.Repeat(" ", n-lipgloss.Width(s))
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
+	return s + strings.Repeat(" ", n-w)
 }
