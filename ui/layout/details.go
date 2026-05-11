@@ -136,18 +136,16 @@ func renderDetailsContainers(cs []ContainerSummary, inner int) []string {
 			rstColor = theme.ColorWarn
 		}
 		rstStr := fmt.Sprintf("rst %d", c.Restarts)
-		// Reserve space for arrow(2) + 3-col gap + 3-col gap + rst.
-		// Name and status share the remainder; each gets min width 1.
-		minNameW := 1
-		minStatusW := 1
-		fixedW := 2 + 3 + 3 + lipgloss.Width(rstStr)
-		flexW := max(inner-fixedW, minNameW+minStatusW)
-		// Split flexible space roughly equally; name goes first
-		nameW := (flexW + 1) / 2
-		statusW := flexW - nameW
-		name := lipgloss.NewStyle().Foreground(theme.ColorFG).Render(truncToWidth(c.Name, nameW))
-		statusStr := lipgloss.NewStyle().Foreground(statusColor).Render(truncToWidth(c.Status, statusW))
 		rst := lipgloss.NewStyle().Foreground(rstColor).Render(rstStr)
+		// Budget: arrow(2) + gap(3) + name + gap(3) + status + rst. Name
+		// absorbs slack when there's room; status truncates only when the
+		// row would otherwise overflow inner. At least 1 cell each.
+		fixedW := 2 + 3 + 3 + lipgloss.Width(rstStr)
+		flexW := max(inner-fixedW, 2)
+		statusW := min(lipgloss.Width(c.Status), max(flexW-1, 1))
+		nameW := max(flexW-statusW, 1)
+		statusStr := lipgloss.NewStyle().Foreground(statusColor).Render(truncToWidth(c.Status, statusW))
+		name := lipgloss.NewStyle().Foreground(theme.ColorFG).Render(truncToWidth(c.Name, nameW))
 		rows = append(rows, arrow+name+"   "+statusStr+"   "+rst)
 
 		if c.Image != "" {
