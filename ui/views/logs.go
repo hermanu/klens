@@ -2,6 +2,7 @@ package views
 
 import (
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -159,10 +160,24 @@ func (v LogsView) Update(msg tea.Msg) (LogsView, tea.Cmd) {
 			v.follow = false
 		case "G":
 			v.follow = true
-		case "t":
-			// Toggle live tail. Pausing keeps the buffer where it is so the
-			// user can read calmly; resuming snaps back to the newest line.
+		case "t", " ":
+			// Toggle live tail (space is an alias for t). Pausing keeps the
+			// buffer where it is so the user can read calmly; resuming
+			// snaps back to the newest line.
 			v.follow = !v.follow
+			return v, nil
+		case "m":
+			// Drop a marker line — renders as a ──── separator below. Useful
+			// when watching a fast stream and you want to bookmark "from
+			// here, watch for repro". The marker carries a timestamp so the
+			// user can see how long ago they set it.
+			v.lines = append(v.lines, resources.LogLine{
+				Time:     time.Now(),
+				IsMarker: true,
+			})
+			if len(v.lines) > logBufferMax {
+				v.lines = v.lines[len(v.lines)-logBufferMax:]
+			}
 			return v, nil
 		case "c":
 			v.lines = nil
@@ -261,15 +276,23 @@ func (v LogsView) activePods() []string {
 }
 
 // KeyHints implements views.View. The wrap label flips so the user can
-// see the toggle's current state without opening the help overlay.
+// see the toggle's current state without opening the help overlay. The
+// space/pause hint also flips so the user can tell if scroll is live or
+// paused at a glance.
 func (v LogsView) KeyHints() []layout.KeyHint {
 	wrapLabel := "wrap"
 	if v.wrap {
 		wrapLabel = "no-wrap"
 	}
+	pauseLabel := "pause"
+	if !v.follow {
+		pauseLabel = "resume"
+	}
 	return []layout.KeyHint{
 		{Key: "j/k", Label: "scroll"},
 		{Key: "G", Label: "tail"},
+		{Key: "␣", Label: pauseLabel},
+		{Key: "m", Label: "mark"},
 		{Key: "w", Label: wrapLabel},
 		{Key: "/", Label: labelFilter},
 		{Key: keyEsc, Label: "back"},
@@ -362,6 +385,19 @@ func (v LogsView) visibleLines() []resources.LogLine {
 }
 
 func formatLogRow(width int, l resources.LogLine, multi bool, filter string, wrap bool) string {
+	// Markers render as a horizontal separator with a timestamp anchor —
+	// inserted by the `m` key so users can bookmark a moment in a busy
+	// stream. The accent color makes them pop against the muted log rows.
+	if l.IsMarker {
+		ts := l.Time.Format("15:04:05")
+		label := "  ── " + ts + " "
+		fill := width - lipgloss.Width(label)
+		if fill < 1 {
+			fill = 1
+		}
+		return lipgloss.NewStyle().Foreground(theme.ColorAccent).
+			Render(label + strings.Repeat("─", fill))
+	}
 	ts := l.Time.Format("15:04:05.000")
 	tsCol := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render(ts)
 	level := l.Level

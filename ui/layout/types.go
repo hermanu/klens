@@ -84,9 +84,13 @@ type TopBarConfig struct {
 	// CPUPercent is the latest cpu percent shown next to the sparkline. -1
 	// renders "—" instead of a number.
 	CPUPercent int
-	Namespace  string // shown in the breadcrumb, e.g. "ns:all"
-	Resource   string // shown in the breadcrumb, e.g. "pods"
-	Live       bool   // ● live indicator
+	// NavItems is the 8-entry resource list rendered as a 2-column grid in
+	// the wide top bar's right column (replaces the dropped left rail).
+	// Nil/empty → grid is omitted.
+	NavItems  []NavItem
+	Namespace string // shown in the breadcrumb, e.g. "ns:all"
+	Resource  string // shown in the breadcrumb, e.g. "pods"
+	Live      bool   // ● live indicator
 	// VisibleCount/TotalCount are the canonical filtered/total counts that
 	// row 2 anchors at the same column on every render. When equal, the bar
 	// shows "· N"; when different, "· V of N" with V in accent.

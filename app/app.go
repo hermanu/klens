@@ -64,8 +64,6 @@ const (
 	topBarRowsWide   = 8   // 1 top border + 6 body + 1 bottom border
 	topBarRowsNarrow = 3   // 1 top border + 1 body + 1 bottom border
 	topBarWideAt     = 80  // width >= this enables the 6-row block logo + KV column
-	navStripRows     = 3   // 1 top border + 1 body + 1 bottom border
-	minNavStripAt    = 60  // below this width, hide the strip (too narrow for 8 items)
 	cmdBarRows       = 4   // 1 top border + 2 body + 1 bottom border
 	minDetailsAt     = 120 // unchanged — drop right column below this width
 )
@@ -997,16 +995,11 @@ func (m Model) View() string {
 	if m.width < topBarWideAt {
 		topBarH = topBarRowsNarrow
 	}
-	stripH := 0
-	showStrip := m.isTopLevelList() && m.width >= minNavStripAt
-	if showStrip {
-		stripH = navStripRows
-	}
 	extraBottom := 0
 	if m.commandMode {
 		extraBottom = 1
 	}
-	midH := max(m.height-topBarH-stripH-cmdBarRows-extraBottom, 5)
+	midH := max(m.height-topBarH-cmdBarRows-extraBottom, 5)
 
 	// Widths — rail is gone; the nav strip lives between top bar and mid row.
 	showDetails := m.width >= minDetailsAt &&
@@ -1021,7 +1014,12 @@ func (m Model) View() string {
 
 	cm := m.clusterMeta()
 
-	// 1. Top bar panel
+	// 1. Top bar panel — body is logo (left), KV grid (middle), nav grid
+	// (right column, shown only on top-level list views at wide widths).
+	var navItems []layout.NavItem
+	if m.isTopLevelList() {
+		navItems = m.navItems()
+	}
 	topCfg := layout.TopBarConfig{
 		Context:    fallback(m.cluster.Context, "—"),
 		Cluster:    fallback(m.cluster.Cluster, "—"),
@@ -1035,6 +1033,7 @@ func (m Model) View() string {
 		NodesTotal: cm.NodesTotal,
 		CPUSamples: cm.CPUSamples,
 		CPUPercent: cm.CPUPercent,
+		NavItems:   navItems,
 		Namespace:  fallback(m.namespace, "all"),
 		Resource:   v.Title(),
 		Live:       m.client != nil,
@@ -1048,20 +1047,7 @@ func (m Model) View() string {
 		Body:   layout.TopBar(m.width-2, topCfg),
 	})
 
-	// 2. Nav strip panel (top-level list views only).
-	var stripPanel string
-	if showStrip {
-		stripBody := layout.NavStrip(m.width-2, m.navItems())
-		stripPanel = components.Panel(components.PanelConfig{
-			Width:  m.width,
-			Height: navStripRows,
-			Title:  lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render("RESOURCES"),
-			Foot:   lipgloss.NewStyle().Foreground(theme.ColorMuted).Render("[ ] cycle"),
-			Body:   stripBody,
-		})
-	}
-
-	// 3. Mid row: table | details
+	// 2. Mid row: table | details
 	var midPanels []string
 	tableBody := v.Table(tableW-2, midH-2)
 	tableTitle := tablePanelTitle(v.Title(), visible, total, m.pods.Scope())
@@ -1101,12 +1087,7 @@ func (m Model) View() string {
 		Body:   cmdBody,
 	})
 
-	frameRows := []string{topPanel}
-	if showStrip {
-		frameRows = append(frameRows, stripPanel)
-	}
-	frameRows = append(frameRows, midRow, cmdPanel)
-	frame := lipgloss.JoinVertical(lipgloss.Left, frameRows...)
+	frame := lipgloss.JoinVertical(lipgloss.Left, topPanel, midRow, cmdPanel)
 
 	// Modal palette / help overlays (existing logic preserved).
 	if m.showPalette {

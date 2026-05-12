@@ -221,10 +221,16 @@ type PodMetricSample struct {
 }
 
 // LogLine is one streamed log entry from a pod container.
+//
+// When IsMarker is true, the entry isn't a real log line — it's a
+// user-inserted bookmark (logs view `m` key) rendered as a horizontal
+// separator so the user can spot where they paused to investigate a
+// failing event in a fast-scrolling stream.
 type LogLine struct {
 	Pod       string
 	Container string
 	Time      time.Time
 	Level     string // INFO/WARN/ERROR/DEBUG, parsed best-effort from line prefix
 	Message   string
+	IsMarker  bool
 }

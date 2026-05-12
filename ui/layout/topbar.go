@@ -87,6 +87,11 @@ func TopBar(width int, cfg TopBarConfig) string {
 // minimum KV column(~36) — narrower than this would truncate the KVs.
 const topBarWideAt = 80
 
+// navGridAt is the minimum inner width at which the resource nav grid
+// joins the wide body as a third column. Logo(42) + gap(2) + min KV(24)
+// + gap(2) + nav grid(30) = 100; rounding to a friendly threshold.
+const navGridAt = 110
+
 func renderTopBarWide(inner int, cfg TopBarConfig) string {
 	logoStyle := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
 	logoRows := make([]string, len(KlensLogo))
@@ -95,12 +100,22 @@ func renderTopBarWide(inner int, cfg TopBarConfig) string {
 	}
 
 	gap := "  "
-	kvW := max(inner-LogoWidth-len(gap), 20)
+	navW := 0
+	var navRows []string
+	if inner >= navGridAt && len(cfg.NavItems) > 0 {
+		navW = navGridWidth(cfg.NavItems)
+		navRows = navGridColumn(cfg.NavItems, navW, len(KlensLogo))
+	}
+	kvW := max(inner-LogoWidth-len(gap)-navW-cond(navW > 0, len(gap), 0), 20)
 	kvRows := kvColumn(cfg, kvW, len(KlensLogo))
 
 	out := make([]string, len(KlensLogo))
 	for i := range KlensLogo {
-		out[i] = logoRows[i] + gap + padRight(kvRows[i], kvW)
+		row := logoRows[i] + gap + padRight(kvRows[i], kvW)
+		if navW > 0 {
+			row += gap + navRows[i]
+		}
+		out[i] = row
 	}
 	return strings.Join(out, "\n")
 }
@@ -173,6 +188,88 @@ func optionalStr(s string) string {
 		return ""
 	}
 	return s
+}
+
+// navGridColumn renders the 8 resource mnemonics as a 2-column × 4-row
+// grid, vertically centered within rows total rows so it visually balances
+// the 6-row logo column. The active item carries a ▌ + accent fg; inactive
+// items render in muted color.
+func navGridColumn(items []NavItem, w, rows int) []string {
+	if w < 1 {
+		w = 1
+	}
+	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
+	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted)
+	mnemonicMuted := lipgloss.NewStyle().Foreground(theme.ColorMuted2)
+
+	cellW := (w - 2) / 2 // 2-col gap between left/right cells
+	if cellW < 8 {
+		cellW = 8
+	}
+	cell := func(it NavItem) string {
+		label := muted.Render(it.Label)
+		mnemonic := mnemonicMuted.Render(it.Mnemonic)
+		prefix := "  "
+		if it.Active {
+			label = accent.Render(it.Label)
+			mnemonic = accent.Render(it.Mnemonic)
+			prefix = accent.Render("▌ ")
+		}
+		s := prefix + mnemonic + " " + label
+		if lw := lipgloss.Width(s); lw < cellW {
+			s += strings.Repeat(" ", cellW-lw)
+		}
+		return s
+	}
+
+	// Split into two halves: items[0:4] on the left, items[4:8] on the right.
+	half := (len(items) + 1) / 2
+	gridRows := []string{}
+	for i := 0; i < half; i++ {
+		left := cell(items[i])
+		right := ""
+		if i+half < len(items) {
+			right = cell(items[i+half])
+		}
+		gridRows = append(gridRows, left+"  "+right)
+	}
+
+	// Center vertically within `rows` total rows: 6 total - 4 grid = 2 blank;
+	// split 1 above + 1 below.
+	top := (rows - len(gridRows)) / 2
+	if top < 0 {
+		top = 0
+	}
+	out := make([]string, rows)
+	for i := range out {
+		switch {
+		case i < top:
+			out[i] = ""
+		case i-top < len(gridRows):
+			out[i] = gridRows[i-top]
+		default:
+			out[i] = ""
+		}
+	}
+	return out
+}
+
+// navGridWidth returns the rendered width of the nav grid: 2 × cellWidth
+// + 2-col inter-cell gap. cellWidth is sized to fit the longest label
+// (currently "deployments" / "configmaps" / "namespaces" = 11 chars) plus
+// cursor(2) + mnemonic(2) + gap(1) = 16 cells.
+func navGridWidth(items []NavItem) int {
+	const cellW = 16
+	return cellW*2 + 2
+}
+
+// cond returns a if test is true, else b. Saves a few `if` blocks at
+// call sites that need a conditional value in an expression.
+func cond[T any](test bool, a, b T) T {
+	if test {
+		return a
+	}
+	return b
 }
 
 // trimClusterIdent collapses an ARN-style identity to its trailing
