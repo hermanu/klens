@@ -140,11 +140,6 @@ func (v GenericDescribeView) Table(width, height int) string {
 		}
 		sb.WriteString("  " + keyStyle.Render(kv.Key) + " " + v + "\n")
 	}
-	if len(v.kvs) > pageSize {
-		hint := lipgloss.NewStyle().Foreground(theme.ColorMuted).
-			Render("  " + strFmt(start+1, end, len(v.kvs)))
-		sb.WriteString(hint)
-	}
 	_ = width // width unused — KV layout flexes to terminal width naturally.
 	return sb.String()
 }

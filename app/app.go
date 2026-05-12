@@ -60,14 +60,14 @@ const (
 // top + bottom, so the chrome cost is higher than the previous outer-frame
 // shell. minDetailsAt unchanged (right column drops below 120 cols).
 const (
-	navRailWidth     = 22
 	detailsWidth     = 44
 	topBarRowsWide   = 8   // 1 top border + 6 body + 1 bottom border
 	topBarRowsNarrow = 3   // 1 top border + 1 body + 1 bottom border
 	topBarWideAt     = 80  // width >= this enables the 6-row block logo + KV column
+	navStripRows     = 3   // 1 top border + 1 body + 1 bottom border
+	minNavStripAt    = 60  // below this width, hide the strip (too narrow for 8 items)
 	cmdBarRows       = 4   // 1 top border + 2 body + 1 bottom border
 	minDetailsAt     = 120 // unchanged — drop right column below this width
-	minNavRailAt     = 60  // below this, hide the rail too
 )
 
 // Model is the root Bubble Tea model. It owns all views, the input, the
@@ -997,27 +997,27 @@ func (m Model) View() string {
 	if m.width < topBarWideAt {
 		topBarH = topBarRowsNarrow
 	}
+	stripH := 0
+	showStrip := m.isTopLevelList() && m.width >= minNavStripAt
+	if showStrip {
+		stripH = navStripRows
+	}
 	extraBottom := 0
 	if m.commandMode {
 		extraBottom = 1
 	}
-	midH := max(m.height-topBarH-cmdBarRows-extraBottom, 5)
+	midH := max(m.height-topBarH-stripH-cmdBarRows-extraBottom, 5)
 
-	// Widths
-	showRail := m.width >= minNavRailAt && m.isTopLevelList()
+	// Widths — rail is gone; the nav strip lives between top bar and mid row.
 	showDetails := m.width >= minDetailsAt &&
 		m.current != viewLogs &&
 		m.current != viewDescribe &&
 		m.current != viewGenericDescribe
-	railW := 0
 	detW := 0
-	if showRail {
-		railW = navRailWidth
-	}
 	if showDetails {
 		detW = detailsWidth
 	}
-	tableW := max(m.width-railW-detW, 20)
+	tableW := max(m.width-detW, 20)
 
 	cm := m.clusterMeta()
 
@@ -1048,20 +1048,21 @@ func (m Model) View() string {
 		Body:   layout.TopBar(m.width-2, topCfg),
 	})
 
-	// 2. Mid row: rail | table | details
-	var midPanels []string
-	if showRail {
-		railBody := layout.NavRail(railW-2, midH-2, m.navRailConfig(cm))
-		railPanel := components.Panel(components.PanelConfig{
-			Width:  railW,
-			Height: midH,
+	// 2. Nav strip panel (top-level list views only).
+	var stripPanel string
+	if showStrip {
+		stripBody := layout.NavStrip(m.width-2, m.navItems())
+		stripPanel = components.Panel(components.PanelConfig{
+			Width:  m.width,
+			Height: navStripRows,
 			Title:  lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render("RESOURCES"),
 			Foot:   lipgloss.NewStyle().Foreground(theme.ColorMuted).Render("[ ] cycle"),
-			Body:   railBody,
+			Body:   stripBody,
 		})
-		midPanels = append(midPanels, railPanel)
 	}
 
+	// 3. Mid row: table | details
+	var midPanels []string
 	tableBody := v.Table(tableW-2, midH-2)
 	tableTitle := tablePanelTitle(v.Title(), visible, total, m.pods.Scope())
 	tableFoot := tableFootForView(v, visible, total, tableW-4)
@@ -1100,7 +1101,12 @@ func (m Model) View() string {
 		Body:   cmdBody,
 	})
 
-	frame := lipgloss.JoinVertical(lipgloss.Left, topPanel, midRow, cmdPanel)
+	frameRows := []string{topPanel}
+	if showStrip {
+		frameRows = append(frameRows, stripPanel)
+	}
+	frameRows = append(frameRows, midRow, cmdPanel)
+	frame := lipgloss.JoinVertical(lipgloss.Left, frameRows...)
 
 	// Modal palette / help overlays (existing logic preserved).
 	if m.showPalette {
@@ -1119,8 +1125,14 @@ func (m Model) View() string {
 }
 
 // navRailConfig builds the NavRailConfig from current model state.
-func (m Model) navRailConfig(cm clusterMeta) layout.NavRailConfig {
-	items := []layout.NavItem{
+// navItems returns the 8-entry mnemonic list rendered by the horizontal
+// NavStrip. The active entry is keyed off m.current so the strip
+// highlights the focused resource. The cluster aggregate stats that used
+// to ride along (NavRailConfig.Cluster) are gone with the rail — the
+// top bar's KV column and the table panel's [N] title carry their own
+// counts now.
+func (m Model) navItems() []layout.NavItem {
+	return []layout.NavItem{
 		{Mnemonic: "1", Label: viewNamePods, Active: m.current == viewPods},
 		{Mnemonic: "2", Label: viewNameDeployments, Active: m.current == viewDeployments},
 		{Mnemonic: "3", Label: viewNameServices, Active: m.current == viewServices},
@@ -1130,36 +1142,17 @@ func (m Model) navRailConfig(cm clusterMeta) layout.NavRailConfig {
 		{Mnemonic: "7", Label: viewNameNamespaces, Active: m.current == viewNamespaces},
 		{Mnemonic: "8", Label: viewNamePVCs, Active: m.current == viewPVCs},
 	}
-	_, p := m.pods.Count()
-	_, d := m.deployments.Count()
-	_, s := m.services_.Count()
-	_, n := m.nodes.Count()
-	_, c := m.configmaps.Count()
-	_, sec := m.secrets.Count()
-	_, ns := m.namespaces.Count()
-	_, pv := m.pvcs.Count()
-	counts := []int{p, d, s, n, c, sec, ns, pv}
-	for i := range items {
-		items[i].Count = counts[i]
-	}
-	return layout.NavRailConfig{
-		Items: items,
-		Cluster: layout.ClusterMeta{
-			NodesReady: cm.NodesReady,
-			NodesTotal: cm.NodesTotal,
-			Pods:       cm.Pods,
-			CPUSamples: cm.CPUSamples,
-			MEMSamples: cm.MEMSamples,
-			CPUPercent: cm.CPUPercent,
-			MEMPercent: cm.MEMPercent,
-		},
-	}
 }
 
 // tablePanelTitle renders the table panel's notched title, including the
-// drill scope chip when set on the pods view.
+// drill scope chip when set on the pods view. Total == 0 suppresses the
+// count chip entirely (used by logs/describe sub-views where 'lines' or
+// 'fields' isn't a meaningful count to anchor on).
 func tablePanelTitle(resource string, visible, total int, scope string) string {
 	title := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render(strings.ToUpper(resource))
+	if total == 0 && scope == "" {
+		return title
+	}
 	count := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(fmt.Sprintf(" [%d]", total))
 	if visible != total {
 		count = lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(
