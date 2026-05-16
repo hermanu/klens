@@ -199,6 +199,13 @@ func podToItem(p corev1.Pod) PodItem {
 }
 
 func podPhase(p corev1.Pod) string {
+	// Init containers are checked before regular ones; a stuck init container
+	// hides the main containers and sets the effective pod phase.
+	for _, cs := range p.Status.InitContainerStatuses {
+		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+			return "Init:" + cs.State.Waiting.Reason
+		}
+	}
 	for _, cs := range p.Status.ContainerStatuses {
 		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
 			return cs.State.Waiting.Reason
