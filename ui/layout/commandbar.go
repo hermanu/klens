@@ -14,6 +14,10 @@ import (
 // `inputView` is the rendered textinput.View() string from bubbles/textinput
 // (so the caller owns the cursor blink). `hints` are right-aligned key chips.
 //
+// width is the INNER content width — the caller is responsible for reserving
+// the panel border columns before calling. The return value is exactly width
+// cells wide with no additional padding.
+//
 // At narrow widths the right side drops hints one-by-one (lowest priority
 // first — the right-most chip) until the prompt + remaining hints fit one
 // row; a trailing `…` signals when hints were dropped. We never wrap to a
@@ -34,11 +38,6 @@ func CommandBar(width int, inputView string, hints []KeyHint) string {
 		chips = append(chips, key+label)
 	}
 
-	inner := width - 2 // panel padding 0,1
-	if inner < 1 {
-		inner = 1
-	}
-
 	// Drop chips from the right until the prompt + remaining chips + a 1-cell
 	// gap fit. If we had to drop any, append a faint `…` so the user knows
 	// some hints exist beyond the visible set (open `?` for the full keymap).
@@ -46,19 +45,19 @@ func CommandBar(width int, inputView string, hints []KeyHint) string {
 	const minGap = 2
 	dropped := false
 	right := strings.Join(chips, "  ")
-	for len(chips) > 0 && lipgloss.Width(right)+leftW+minGap > inner {
+	for len(chips) > 0 && lipgloss.Width(right)+leftW+minGap > width {
 		chips = chips[:len(chips)-1]
 		dropped = true
 		right = strings.Join(chips, "  ")
 	}
-	if dropped && lipgloss.Width(right)+leftW+minGap+2 <= inner {
+	if dropped && lipgloss.Width(right)+leftW+minGap+2 <= width {
 		right = right + "  " + theme.Faint.Render("…")
 	}
 
-	gap := inner - leftW - lipgloss.Width(right)
+	gap := width - leftW - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
 	}
 	line := left + strings.Repeat(" ", gap) + right
-	return theme.Panel.Width(width).Padding(0, 1).Render(line)
+	return lipgloss.NewStyle().Width(width).Render(line)
 }

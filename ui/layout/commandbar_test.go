@@ -44,7 +44,7 @@ func TestCommandBar_WidthClamp(t *testing.T) {
 
 func TestCommandBar_PromptUsesAccent(t *testing.T) {
 	got := layout.CommandBar(80, "", nil)
-	want := sgrFor(t, "#7dd3fc") // theme.ColorAccent
+	want := sgrFor(t, "#70c0b1") // theme.ColorAccent (v3 ANSI palette)
 	if !strings.Contains(got, want) {
 		t.Errorf("'›' prompt must render in accent color SGR %q, got %q", want, got)
 	}

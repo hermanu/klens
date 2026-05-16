@@ -105,6 +105,46 @@ func TestModel_CommandModeUnknownFlashes(t *testing.T) {
 	}
 }
 
+// TestModel_MnemonicSwitchesView verifies that digit `2` switches the
+// current view name away from "pods". Uses the new CurrentResource()
+// accessor (added below) so the test has a strong signal.
+func TestModel_MnemonicSwitchesView(t *testing.T) {
+	m, err := app.New("", "")
+	if err != nil {
+		t.Skip("skipping:", err)
+	}
+	if got := m.CurrentResource(); got != "pods" {
+		t.Fatalf("default view should be pods, got %q", got)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	nm, ok := next.(app.Model)
+	if !ok {
+		t.Fatal("Update did not return app.Model")
+	}
+	if got := nm.CurrentResource(); got != "deployments" {
+		t.Errorf("after '2', want deployments, got %q", got)
+	}
+}
+
+// TestModel_BracketCycles verifies that `]` advances to the next rail item
+// (pods → deployments) and `[` wraps backward (pods → pvcs).
+func TestModel_BracketCycles(t *testing.T) {
+	m, err := app.New("", "")
+	if err != nil {
+		t.Skip("skipping:", err)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
+	nm, _ := next.(app.Model)
+	if got := nm.CurrentResource(); got != "deployments" {
+		t.Errorf("after ']' from pods, want deployments, got %q", got)
+	}
+	next2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'['}})
+	nm2, _ := next2.(app.Model)
+	if got := nm2.CurrentResource(); got != "pvcs" {
+		t.Errorf("after '[' from pods, want pvcs (wrap), got %q", got)
+	}
+}
+
 // TestModel_PerViewFilterPersistsAcrossLogs verifies the regression fix: a
 // filter set on pods is preserved when the user opens logs and esc-pops back.
 func TestModel_PerViewFilterPersistsAcrossLogs(t *testing.T) {

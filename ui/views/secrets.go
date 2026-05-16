@@ -248,6 +248,14 @@ func (v SecretsView) Count() (visible, total int) {
 	return len(v.visibleSecrets()), len(v.secrets)
 }
 
+// CursorIndex implements views.Cursored.
+func (v SecretsView) CursorIndex() int {
+	if v.table.RowCount() == 0 {
+		return 0
+	}
+	return v.table.SelectedIndex() + 1
+}
+
 // Chips implements views.View.
 func (v SecretsView) Chips() []layout.FilterChip {
 	chips := []layout.FilterChip{}

@@ -14,67 +14,69 @@ func TestDefaultDetails_EmptyBlockReturnsEmpty(t *testing.T) {
 	}
 }
 
-func TestDefaultDetails_TitleAndKVs(t *testing.T) {
-	b := layout.DetailsBlock{
-		Title:    "api-gateway-7c6b-vxq2t",
-		Subtitle: "platform · Running",
+func TestDefaultDetails_PodDossier(t *testing.T) {
+	out := layout.DefaultDetails(46, 24, layout.DetailsBlock{
+		Title:    "api-gateway-7c4b9d-xk29p",
+		Subtitle: "platform · Running · ready 2/2 · 4d12h",
 		KVs: []layout.KV{
-			{Key: "image", Value: "ghcr.io/acme/api:1.0"},
-			{Key: "node", Value: "ip-10-0-8-02"},
-			{Key: "restarts", Value: "3", Warn: true},
+			{Key: "node", Value: "ip-10-0-1-21"},
+			{Key: "ip", Value: "10.42.1.18"},
+			{Key: "restarts", Value: "0"},
 		},
-	}
-	got := layout.DefaultDetails(60, 30, b)
-	wants := []string{
-		"FOCUSED ITEM",
-		"api-gateway-7c6b-vxq2t",
-		"platform",
-		"SPEC",
-		"image", "ghcr.io/acme/api:1.0",
-		"node", "ip-10-0-8-02",
-		"restarts", "3",
-	}
-	for _, w := range wants {
-		if !strings.Contains(got, w) {
-			t.Errorf("want substring %q, got %q", w, got)
+		Sparks: []layout.MetricSeries{
+			{Label: "cpu", Value: "142m", Samples: []float64{40, 50, 60, 70, 60, 70, 80}},
+			{Label: "mem", Value: "412Mi", Samples: []float64{55, 60, 65, 70, 72, 70, 75}},
+			{Label: "net↓", Value: "58KB/s", Samples: []float64{30, 40, 45, 50, 55}},
+			{Label: "net↑", Value: "32KB/s", Samples: []float64{20, 25, 30, 35}},
+		},
+		Containers: []layout.ContainerSummary{
+			{Name: "api-gateway", Image: "ghcr.io/acme/api-gateway:1.42.0", Status: "Running", Restarts: 0},
+		},
+	})
+	plain := stripANSI(out)
+
+	for _, want := range []string{
+		"api-gateway-7c4b9d-xk29p",
+		"platform · Running",
+		"node",
+		"ip-10-0-1-21",
+		"METRICS",
+		"cpu",
+		"142m",
+		"net↓",
+		"net↑",
+		"CONTAINERS",
+		"api-gateway",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("output missing %q\n--- output ---\n%s", want, plain)
 		}
 	}
 }
 
-func TestDefaultDetails_NoSparksOmitsLiveSection(t *testing.T) {
-	b := layout.DetailsBlock{
-		Title: "cm-config",
-		KVs:   []layout.KV{{Key: "items", Value: "12"}},
-	}
-	got := layout.DefaultDetails(60, 30, b)
-	if strings.Contains(got, "LIVE") {
-		t.Errorf("no Sparks → no LIVE section, got %q", got)
-	}
-	if strings.Contains(got, "LOGS") {
-		t.Errorf("no LogTail → no LOGS section, got %q", got)
-	}
-}
-
-func TestDefaultDetails_NoLogsOmitsLogsSection(t *testing.T) {
-	b := layout.DetailsBlock{
-		Title: "pod-x",
-		Sparks: []layout.MetricSeries{
-			{Label: "cpu", Value: "120m", Samples: []float64{10, 20, 30}},
+func TestDefaultDetails_NonPodView(t *testing.T) {
+	// No Sparks, no Containers — should render only header + KVs.
+	out := layout.DefaultDetails(46, 20, layout.DetailsBlock{
+		Title: "api-gateway",
+		KVs: []layout.KV{
+			{Key: "replicas", Value: "3"},
+			{Key: "strategy", Value: "RollingUpdate"},
 		},
-		KVs: []layout.KV{{Key: "image", Value: "x:1"}},
+	})
+	plain := stripANSI(out)
+	if strings.Contains(plain, "METRICS") {
+		t.Errorf("METRICS section should not appear without Sparks")
 	}
-	got := layout.DefaultDetails(80, 30, b)
-	if !strings.Contains(got, "LIVE") {
-		t.Errorf("Sparks present → want LIVE label, got %q", got)
+	if strings.Contains(plain, "CONTAINERS") {
+		t.Errorf("CONTAINERS section should not appear without Containers")
 	}
-	if strings.Contains(got, "LOGS") {
-		t.Errorf("no LogTail → must not include LOGS, got %q", got)
+	if !strings.Contains(plain, "api-gateway") {
+		t.Errorf("title should still render: %s", plain)
 	}
 }
 
-// LogTail is intentionally not rendered in DefaultDetails — `l` opens the
-// dedicated full-screen logs view, so this pane focuses on SPEC + metrics.
-// The test below guards against accidentally re-introducing a log block.
+// LogTail is intentionally not rendered — `l` opens the dedicated full-screen
+// logs view. This test guards against accidentally re-introducing a log block.
 func TestDefaultDetails_LogTailIsDropped(t *testing.T) {
 	b := layout.DetailsBlock{
 		Title: "pod-x",
@@ -83,7 +85,7 @@ func TestDefaultDetails_LogTailIsDropped(t *testing.T) {
 			{Time: "14:08:22.000", Level: "ERROR", Msg: "boom"},
 		},
 	}
-	got := layout.DefaultDetails(80, 30, b)
+	got := stripANSI(layout.DefaultDetails(80, 30, b))
 	for _, banned := range []string{"LOGS", "tailing", "14:08:21.412", "INFO", "ERROR", "boom"} {
 		if strings.Contains(got, banned) {
 			t.Errorf("DefaultDetails must not render LogTail, but %q appeared in:\n%s", banned, got)
@@ -98,8 +100,17 @@ func TestDefaultDetails_WidthClamp(t *testing.T) {
 		KVs: []layout.KV{
 			{Key: "image", Value: "ghcr.io/acme/api-gateway-with-a-very-long-image-tag:1.42.0-rc.5"},
 		},
-		LogTail: []layout.LogLine{
-			{Time: "00:00:00.000", Level: "INFO", Msg: strings.Repeat("x", 200)},
+		Containers: []layout.ContainerSummary{
+			{
+				Name:     "horizontal-pod-autoscaler-controller-very-very-long",
+				Image:    "ghcr.io/acme/horizontal-pod-autoscaler-controller-with-a-very-very-long-image-tag:2.0.0",
+				Status:   "CrashLoopBackOff",
+				Restarts: 12345,
+			},
+		},
+		Sparks: []layout.MetricSeries{
+			{Label: "cpu", Value: "999m", Samples: []float64{10, 20, 30}},
+			{Label: "mem", Value: "9999Mi", Samples: []float64{10, 20, 30}},
 		},
 	}
 	for _, w := range []int{30, 60, 120} {
@@ -115,20 +126,19 @@ func TestDefaultDetails_WidthClamp(t *testing.T) {
 func TestDefaultDetails_HeightClampKeepsHeader(t *testing.T) {
 	b := layout.DetailsBlock{
 		Title: "pod-x",
-		LogTail: []layout.LogLine{
-			{Time: "t1", Level: "INFO", Msg: "a"},
-			{Time: "t2", Level: "INFO", Msg: "b"},
-			{Time: "t3", Level: "INFO", Msg: "c"},
-			{Time: "t4", Level: "INFO", Msg: "d"},
-			{Time: "t5", Level: "INFO", Msg: "e"},
+		Sparks: []layout.MetricSeries{
+			{Label: "cpu", Value: "10m", Samples: []float64{1, 2, 3}},
+			{Label: "mem", Value: "10Mi", Samples: []float64{1, 2, 3}},
+			{Label: "net↓", Value: "1KB/s", Samples: []float64{1, 2, 3}},
+			{Label: "net↑", Value: "1KB/s", Samples: []float64{1, 2, 3}},
 		},
 	}
-	got := layout.DefaultDetails(60, 6, b)
+	got := stripANSI(layout.DefaultDetails(60, 6, b))
 	lines := strings.Split(got, "\n")
 	if len(lines) > 6 {
 		t.Errorf("must clamp to height=6, got %d lines", len(lines))
 	}
-	if !strings.Contains(got, "FOCUSED ITEM") {
-		t.Errorf("header should survive height clamp, got %q", got)
+	if !strings.Contains(got, "pod-x") {
+		t.Errorf("title should survive height clamp, got %q", got)
 	}
 }

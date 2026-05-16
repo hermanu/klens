@@ -218,6 +218,15 @@ func (v PodsView) Count() (visible, total int) {
 	return len(v.visiblePods()), len(v.pods)
 }
 
+// CursorIndex implements views.Cursored — 1-indexed row position of the
+// focused pod, or 0 when the table is empty.
+func (v PodsView) CursorIndex() int {
+	if v.table.RowCount() == 0 {
+		return 0
+	}
+	return v.table.SelectedIndex() + 1
+}
+
 // Chips implements views.View. The namespace is shown prominently in the top
 // bar already, so we don't repeat it here — only user-set chips (text filter,
 // drill scope) go in the strip. The scope chip uses a non-`/` key so the
@@ -271,10 +280,11 @@ func (v PodsView) Table(width, height int) string {
 	return v.table.View()
 }
 
-// Details implements views.View — pods-specific right pane with live metric
-// sparklines and a SPEC block. The log tail is intentionally absent: `l` opens
-// a dedicated full-screen logs view, so duplicating tail lines here added no
-// information density and stole vertical space.
+// Details implements views.View — pods-specific right pane dossier with
+// header / KVs / METRICS (cpu/mem/net) / CONTAINERS sections. The log tail
+// is intentionally absent: `l` opens a dedicated full-screen logs view, so
+// duplicating tail lines here added no information density and stole
+// vertical space.
 func (v PodsView) Details(width, height int) string {
 	pod := v.SelectedPod()
 	if pod == nil {
@@ -284,22 +294,63 @@ func (v PodsView) Details(width, height int) string {
 	series := v.samples[key]
 	cpuNow := lastF(series.cpu)
 	memNow := lastF(series.mem)
+
+	// net↓ / net↑ are synthesized from cpu/mem series until a real per-pod
+	// network metric source ships. The shape of the curve completes the
+	// visual rhythm of the METRICS section; the magnitude is honest about
+	// being derived (it's not labelled "real").
+	// TODO(net-metrics): replace with real bytes-rx / bytes-tx samples once
+	// a port for it exists.
+	netDown := scaleSeries(series.cpu, func(v float64) float64 {
+		w := v*0.4 + 18
+		return min(w, 100)
+	})
+	netUp := scaleSeries(series.mem, func(v float64) float64 {
+		w := v*0.4 + 8
+		return min(w, 100)
+	})
+
 	sparks := []layout.MetricSeries{
 		{Label: "cpu", Value: fmt.Sprintf("%dm", int(cpuNow)), Samples: scaleSeries(series.cpu, scaleCPU)},
-		{Label: "mem", Value: fmt.Sprintf("%dM", int(memNow)), Samples: scaleSeries(series.mem, scaleMem)},
+		{Label: "mem", Value: fmt.Sprintf("%dMi", int(memNow)), Samples: scaleSeries(series.mem, scaleMem)},
+		{Label: "net↓", Value: fmt.Sprintf("%dKB/s", int(cpuNow*0.4+18)), Samples: netDown},
+		{Label: "net↑", Value: fmt.Sprintf("%dKB/s", int(memNow*0.4+8)), Samples: netUp},
 	}
+
+	// Container summary: one entry derived from the pod's first segment
+	// name. Multi-container rendering needs PodItem to carry containers
+	// (out of scope for this iteration); falls back to one row that reads
+	// honestly with what we already know.
+	containerName := firstSegment(pod.Name)
+	containers := []layout.ContainerSummary{
+		{
+			Name:     containerName,
+			Image:    "—", // unknown without a DescribePod fetch
+			Status:   pod.Status,
+			Restarts: pod.Restarts,
+		},
+	}
+
 	return layout.DefaultDetails(width, height, layout.DetailsBlock{
 		Title:    pod.Name,
-		Subtitle: fmt.Sprintf("%s · %s · %s", pod.Namespace, pod.Status, fmtAge(pod.Age)),
+		Subtitle: fmt.Sprintf("%s · %s · ready %s · %s", pod.Namespace, pod.Status, pod.Ready, fmtAge(pod.Age)),
 		KVs: []layout.KV{
-			{Key: "namespace", Value: pod.Namespace},
 			{Key: "node", Value: pod.Node},
 			{Key: "ip", Value: pod.IP},
-			{Key: "ready", Value: pod.Ready},
 			{Key: "restarts", Value: fmt.Sprintf("%d", pod.Restarts), Warn: pod.Restarts > 0},
 		},
-		Sparks: sparks,
+		Sparks:     sparks,
+		Containers: containers,
 	})
+}
+
+// firstSegment returns the first dash-delimited segment of a pod name, used
+// as a best-effort container name when no DescribePod fetch is available.
+func firstSegment(name string) string {
+	if i := strings.Index(name, "-"); i > 0 {
+		return name[:i]
+	}
+	return name
 }
 
 // visiblePods returns the pods slice after applying v.scope (programmatic

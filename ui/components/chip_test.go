@@ -44,8 +44,8 @@ func TestNSChip_Known(t *testing.T) {
 	if !strings.Contains(got, "platform") {
 		t.Errorf("want output to contain 'platform', got %q", got)
 	}
-	// The chip should encode the namespace's color (#22d3ee for platform).
-	want := sgrFor(t, "#22d3ee")
+	// The chip should encode the namespace's color (#70c0b1 for platform in v3 palette).
+	want := sgrFor(t, "#70c0b1")
 	if !strings.Contains(got, want) {
 		t.Errorf("want platform color SGR %q in output, got %q", want, got)
 	}
@@ -64,8 +64,8 @@ func TestStatusPill_Running(t *testing.T) {
 	if !strings.Contains(got, "Running") {
 		t.Errorf("want output to contain 'Running', got %q", got)
 	}
-	// theme.StatusStyles["Running"].Dot is #a3e635 (green).
-	want := sgrFor(t, "#a3e635")
+	// theme.StatusStyles["Running"].Dot is #b9ca4a (green) in the v3 ANSI palette.
+	want := sgrFor(t, "#b9ca4a")
 	if !strings.Contains(got, want) {
 		t.Errorf("want green dot SGR %q in output, got %q", want, got)
 	}
@@ -76,8 +76,8 @@ func TestStatusPill_ImagePullBackOff(t *testing.T) {
 	if !strings.Contains(got, "ImagePullBackOff") {
 		t.Errorf("want output to contain 'ImagePullBackOff', got %q", got)
 	}
-	// theme.StatusStyles["ImagePullBackOff"].Dot is #fb7185 (red).
-	want := sgrFor(t, "#fb7185")
+	// theme.StatusStyles["ImagePullBackOff"].Dot is #d54e53 (red) in the v3 ANSI palette.
+	want := sgrFor(t, "#d54e53")
 	if !strings.Contains(got, want) {
 		t.Errorf("want red dot SGR %q in output, got %q", want, got)
 	}

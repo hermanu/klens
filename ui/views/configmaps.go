@@ -251,6 +251,14 @@ func (v ConfigMapsView) Count() (visible, total int) {
 	return len(v.visibleConfigMaps()), len(v.configmaps)
 }
 
+// CursorIndex implements views.Cursored.
+func (v ConfigMapsView) CursorIndex() int {
+	if v.table.RowCount() == 0 {
+		return 0
+	}
+	return v.table.SelectedIndex() + 1
+}
+
 // Chips implements views.View.
 func (v ConfigMapsView) Chips() []layout.FilterChip {
 	chips := []layout.FilterChip{}

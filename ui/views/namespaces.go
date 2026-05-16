@@ -115,6 +115,14 @@ func (v NamespacesView) Count() (visible, total int) {
 	return len(v.visibleNamespaces()), len(v.namespaces)
 }
 
+// CursorIndex implements views.Cursored.
+func (v NamespacesView) CursorIndex() int {
+	if v.table.RowCount() == 0 {
+		return 0
+	}
+	return v.table.SelectedIndex() + 1
+}
+
 // Chips implements views.View — namespaces are cluster-scoped, so the ns chip
 // is always "all".
 func (v NamespacesView) Chips() []layout.FilterChip {

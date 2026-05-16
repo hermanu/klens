@@ -38,14 +38,26 @@ type LogLine struct {
 	Msg   string
 }
 
+// ContainerSummary holds the per-container data rendered in the CONTAINERS
+// section of the details pane. Image is intentionally "—" when the pane is
+// built from a list-level PodItem (which does not carry image info); a
+// DescribePod fetch would populate it accurately.
+type ContainerSummary struct {
+	Name     string
+	Image    string
+	Status   string
+	Restarts int32
+}
+
 // DetailsBlock is the data the details pane renders for the focused row.
-// Pods populate Sparks + LogTail; other resources usually only set Title + KVs.
+// Pods populate Sparks + Containers; other resources usually only set Title + KVs.
 type DetailsBlock struct {
-	Title    string
-	Subtitle string // optional second line under the title (e.g. namespace chip + status)
-	KVs      []KV
-	Sparks   []MetricSeries
-	LogTail  []LogLine
+	Title      string
+	Subtitle   string // optional second line under the title (e.g. namespace chip + status)
+	KVs        []KV
+	Sparks     []MetricSeries
+	LogTail    []LogLine
+	Containers []ContainerSummary // rendered in the CONTAINERS section; ignored until Task 7
 }
 
 // TopBarConfig holds the data the top bar renders.
@@ -56,9 +68,29 @@ type TopBarConfig struct {
 	K8sVersion string
 	Region     string
 	KlensVer   string
-	Namespace  string // shown in the breadcrumb, e.g. "ns:all"
-	Resource   string // shown in the breadcrumb, e.g. "pods"
-	Live       bool   // ● live indicator
+	// BuildID is shown in the top-bar title after the version, e.g.
+	// "◎ KLENS v0.3.0 · build a1b2c3d". Empty renders "build dev".
+	BuildID string
+	// Uptime is the cluster oldest-node age, rendered right-aligned in the
+	// dense KV grid. Empty renders "—".
+	Uptime string
+	// NodesReady / NodesTotal drive the top bar's right-aligned `nodes 9/9`
+	// counter. NodesTotal == 0 renders "—".
+	NodesReady int
+	NodesTotal int
+	// CPUSamples is a 0..100 normalised series for the right-aligned cpu
+	// sparkline. Empty renders "—" instead of a sparkline.
+	CPUSamples []float64
+	// CPUPercent is the latest cpu percent shown next to the sparkline. -1
+	// renders "—" instead of a number.
+	CPUPercent int
+	// NavItems is the 8-entry resource list rendered as a 2-column grid in
+	// the wide top bar's right column (replaces the dropped left rail).
+	// Nil/empty → grid is omitted.
+	NavItems  []NavItem
+	Namespace string // shown in the breadcrumb, e.g. "ns:all"
+	Resource  string // shown in the breadcrumb, e.g. "pods"
+	Live      bool   // ● live indicator
 	// VisibleCount/TotalCount are the canonical filtered/total counts that
 	// row 2 anchors at the same column on every render. When equal, the bar
 	// shows "· N"; when different, "· V of N" with V in accent.

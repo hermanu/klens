@@ -53,13 +53,13 @@ func newTestUI(t *testing.T) *teatest.TestModel {
 	return teatest.NewTestModel(t, m, teatest.WithInitialTermSize(uiTestWidth, uiTestHeight))
 }
 
-// TestUI_DefaultFrame verifies the modern shell composes top bar + frame +
-// bottom command bar on first paint. "K L E N S" (letter-spaced) is the
-// banner literal in ui/layout/topbar.go::klensBanner, so its presence is
-// stable proof the top bar rendered.
+// TestUI_DefaultFrame verifies the bordered-panel shell composes top bar +
+// mid row + bottom command bar on first paint. "KLENS" is the brand string
+// rendered inside the top bar's notched title (◎ KLENS <ver> · build <id>),
+// so its presence is stable proof the top panel rendered.
 func TestUI_DefaultFrame(t *testing.T) {
 	tm := newTestUI(t)
-	waitForOutput(t, tm, "K L E N S")
+	waitForOutput(t, tm, "KLENS")
 	quitProgram(tm)
 	tm.WaitFinished(t, teatest.WithFinalTimeout(uiTestTimeout))
 }

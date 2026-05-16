@@ -1,3 +1,14 @@
+// Package layout — TopBar panel body.
+//
+// Renders the top-bar interior: 2-row block KLENS logo on the left, 2-row
+// dense KV grid in the middle, right-aligned cluster meta (nodes + cpu) on
+// the right. At widths < 60 collapses to a single-line body keeping only
+// context + nodes.
+//
+// The bordered envelope and notched title/foot are applied by the caller
+// via components.Panel — this function returns only the body content.
+// Title and foot strings are also produced here for the caller to thread
+// into Panel: see TopBarTitle and TopBarFoot.
 package layout
 
 import (
@@ -5,182 +16,310 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/hermanu/klens/ui/components"
 	"github.com/hermanu/klens/ui/theme"
 )
 
-// TopBar renders the modern shell's compact top bar — a single row + divider:
+// KlensLogo is the 6-row block-shadow KLENS banner shown in the top bar
+// body at width >= TopBarWideAt. Same figlet "ANSI Shadow" style used in
+// the README hero — combines █ for the letter fills with box-drawing
+// glyphs (╗║╔╚╝═) for the shadow edge. Renders cleanly on any terminal
+// that supports unicode box-drawing (every modern one).
+var KlensLogo = [6]string{
+	"██╗  ██╗██╗     ███████╗███╗   ██╗███████╗",
+	"██║ ██╔╝██║     ██╔════╝████╗  ██║██╔════╝",
+	"█████╔╝ ██║     █████╗  ██╔██╗ ██║███████╗",
+	"██╔═██╗ ██║     ██╔══╝  ██║╚██╗██║╚════██║",
+	"██║  ██╗███████╗███████╗██║ ╚████║███████║",
+	"╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═══╝╚══════╝",
+}
+
+// LogoWidth is the column count of every KlensLogo row.
+const LogoWidth = 42
+
+// TopBarTitle returns the styled title string for the top-bar Panel:
 //
-//	ctx maisa-sdlc · v1.30 · ▆ europa     ── K L E N S ──     ● live
+//	◎ KLENS v0.3.0 · build a1b2c3d
 //
-// The horizontal nav strip (rendered by NavStrip) sits directly under this
-// divider and carries the per-resource mnemonic + count. The aggregate
-// filtered/total count is anchored on the active nav item — not duplicated
-// here — so the chrome stays one line tall.
+// Caller hands this to PanelConfig.Title.
+func TopBarTitle(cfg TopBarConfig) string {
+	dot := lipgloss.NewStyle().Foreground(theme.ColorAccent).Render("◎ ")
+	klens := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render("KLENS")
+	ver := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(" " + safeStr(cfg.KlensVer, "dev"))
+	sep := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render(" · ")
+	bid := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render("build " + safeStr(cfg.BuildID, "dev"))
+	return dot + klens + ver + sep + bid
+}
+
+// TopBarFoot returns the styled foot for the top-bar Panel: the pulse dot
+// + "watching" label. pulseOn toggles ● ↔ ○ once per pulse tick.
+func TopBarFoot(pulseOn, live bool) string {
+	dot := "○"
+	if pulseOn && live {
+		dot = "●"
+	}
+	color := theme.ColorMuted
+	if live {
+		color = theme.ColorOk
+	}
+	return lipgloss.NewStyle().Foreground(color).Render(dot) +
+		lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(" watching")
+}
+
+// TopBar renders the top-bar body (no border — caller wraps via Panel).
+// width is the INNER content width (caller passes outerW-2).
 //
-// Cluster ARN, user ARN, region and klens-version are intentionally left out:
-// they don't change during a session and just steal horizontal real estate.
-// Discoverable via the palette (`ctx`, `:about`).
+// Wide path returns 6 rows (logo on the left, KV grid on the right); narrow
+// path returns a single-row fallback at widths < TopBarWideAt. The caller
+// passes Height accordingly via the geometry constants in app/app.go.
 func TopBar(width int, cfg TopBarConfig) string {
-	if width < 1 {
-		width = 1
+	if width < 8 {
+		width = 8
 	}
-
-	left := identityStrip(cfg)
-	mid := klensBanner()
-	right := rightChips(cfg.Live)
-	row := flex3(width, left, mid, right)
-
-	div := lipgloss.NewStyle().
-		Foreground(theme.ColorBorder).
-		Render(strings.Repeat("─", width))
-	return lipgloss.JoinVertical(lipgloss.Left, row, div)
+	if width < TopBarWideAt {
+		return renderTopBarNarrow(width, cfg)
+	}
+	return renderTopBarWide(width, cfg)
 }
 
-// klensBanner is the brand banner — a letter-spaced KLENS in accent flanked
-// by symmetric thin horizontal-line bookends so it reads as one balanced unit.
-func klensBanner() string {
-	bookend := lipgloss.NewStyle().
-		Foreground(theme.ColorBorder).
-		Render("──")
-	name := lipgloss.NewStyle().
-		Foreground(theme.ColorAccent).
-		Bold(true).
-		Render("K L E N S")
-	return bookend + "  " + name + "  " + bookend
+// TopBarWideAt is the minimum inner panel width at which the wide top-bar
+// path renders. Below this the body collapses to a single-row identity strip.
+// 80 cells = logo(42) + gap(2) + minimum KV column(~36).
+// app/app.go uses this constant to decide between topBarRowsWide and
+// topBarRowsNarrow — both must agree on the threshold.
+const TopBarWideAt = 80
+
+// navGridAt is the minimum inner width at which the resource nav grid
+// joins the wide body as a third column. Logo(42) + gap(2) + min KV(24)
+// + gap(2) + nav grid(30) = 100; rounding to a friendly threshold.
+const navGridAt = 110
+
+func renderTopBarWide(inner int, cfg TopBarConfig) string {
+	logoStyle := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
+	logoRows := make([]string, len(KlensLogo))
+	for i, line := range KlensLogo {
+		logoRows[i] = logoStyle.Render(line)
+	}
+
+	gap := "  "
+	navW := 0
+	var navRows []string
+	if inner >= navGridAt && len(cfg.NavItems) > 0 {
+		navW = navGridWidth(cfg.NavItems)
+		navRows = navGridColumn(cfg.NavItems, navW, len(KlensLogo))
+	}
+	kvW := max(inner-LogoWidth-len(gap)-navW-cond(navW > 0, len(gap), 0), 20)
+	kvRows := kvColumn(cfg, kvW, len(KlensLogo))
+
+	out := make([]string, len(KlensLogo))
+	for i := range KlensLogo {
+		row := logoRows[i] + gap + padRight(kvRows[i], kvW)
+		if navW > 0 {
+			row += gap + navRows[i]
+		}
+		out[i] = row
+	}
+	return strings.Join(out, "\n")
 }
 
-// identityStrip renders the minimal cluster identity: context + short k8s
-// version + the active namespace chip. The namespace chip used to live on a
-// dedicated row 2 (with the resource label and count); we collapsed it here
-// because the resource label is now redundant with the active nav item, and
-// the count is now anchored on that nav item too.
-func identityStrip(cfg TopBarConfig) string {
-	parts := []string{}
-	if c := strings.TrimSpace(cfg.Context); c != "" {
-		parts = append(parts,
-			theme.Faint.Render("ctx")+" "+
-				lipgloss.NewStyle().Foreground(theme.ColorFG).Render(c))
+// kvColumn renders the identity KV grid as exactly n vertically-stacked
+// rows so it aligns 1:1 with the logo rows. Each KV pair occupies one
+// row; empty / duplicate fields render as blank rows so the grid stays
+// rectangular. The mapping (ctx → cluster → user → region → k8s → uptime)
+// keeps the most-stable identity fields at the top and the volatile ones
+// at the bottom.
+func kvColumn(cfg TopBarConfig, w, n int) []string {
+	dim := lipgloss.NewStyle().Foreground(theme.ColorMuted)
+	hi := lipgloss.NewStyle().Foreground(theme.ColorFG)
+	hiBold := lipgloss.NewStyle().Foreground(theme.ColorFG).Bold(true)
+
+	// EKS's `aws eks update-kubeconfig` sets kubeconfig context/cluster/user
+	// all to the same ARN — trimming to the basename and skipping duplicates
+	// keeps the grid useful instead of three identical 60-char ARNs.
+	ctx := trimClusterIdent(cfg.Context)
+	cluster := trimClusterIdent(cfg.Cluster)
+	user := trimClusterIdent(cfg.User)
+
+	row := func(label, value string, strong bool) string {
+		if value == "" {
+			return ""
+		}
+		labelStyled := dim.Render(label + " ")
+		valueStyled := hi.Render(value)
+		if strong {
+			valueStyled = hiBold.Render(value)
+		}
+		s := labelStyled + valueStyled
+		if lw := lipgloss.Width(s); lw < w {
+			s += strings.Repeat(" ", w-lw)
+		}
+		return s
 	}
-	if v := shortK8sVersion(cfg.K8sVersion); v != "" {
-		parts = append(parts,
-			theme.Faint.Render("·")+" "+
-				lipgloss.NewStyle().Foreground(theme.ColorFG2).Render(v))
+
+	rows := []string{
+		row("ctx", safeStr(ctx, "—"), true),
+		"", // placeholder — cluster row filled below when distinct from ctx
+		"",
+		row("region", optionalStr(cfg.Region), false),
+		row("k8s", safeStr(cfg.K8sVersion, "—"), false),
+		row("uptime", optionalStr(cfg.Uptime), false),
 	}
-	parts = append(parts,
-		theme.Faint.Render("·")+" "+nsChip(cfg.Namespace))
-	if r := strings.TrimSpace(cfg.Resource); r != "" {
-		parts = append(parts,
-			theme.Faint.Render("·")+" "+resourceCount(r, cfg.VisibleCount, cfg.TotalCount))
+	if cluster != "" && cluster != ctx {
+		rows[1] = row("cluster", cluster, false)
 	}
-	return strings.Join(parts, "  ")
+	if user != "" && user != ctx {
+		rows[2] = row("user", user, false)
+	}
+	// Clamp / pad to n rows so the column always returns exactly len(logo)
+	// entries regardless of how many KV fields are populated.
+	if len(rows) > n {
+		rows = rows[:n]
+	}
+	for len(rows) < n {
+		rows = append(rows, "")
+	}
+	return rows
 }
 
-// resourceCount renders the active resource label + V/T count, e.g.
-// `pods 4/56` or `pods 56`. Now that the rail is gone, this is the only
-// place the user sees what view they're on, so it lives in the top bar's
-// identity strip alongside the namespace chip.
-func resourceCount(resource string, visible, total int) string {
-	res := lipgloss.NewStyle().Foreground(theme.ColorFG).Bold(true).Render(resource)
-	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
-	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted)
-	if visible == total {
-		return res + " " + muted.Render(fmt.Sprintf("%d", total))
-	}
-	return res + " " + accent.Render(fmt.Sprintf("%d", visible)) +
-		muted.Render(fmt.Sprintf("/%d", total))
-}
-
-// shortK8sVersion compresses "v1.35.3-eks-bbe087e" to "v1.35.3" — the minor
-// version is what users care about at a glance.
-func shortK8sVersion(v string) string {
-	v = strings.TrimSpace(v)
-	if v == "" || v == "—" {
+// optionalStr returns "" for empty/placeholder values so the kvColumn can
+// suppress entire rows when an identity field isn't wired yet (e.g. region
+// stays empty for clusters that don't carry one in kubeconfig).
+func optionalStr(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "—" {
 		return ""
 	}
-	if i := strings.Index(v, "-"); i > 0 {
-		v = v[:i]
-	}
-	return v
+	return s
 }
 
-// rightChips renders the top bar's right-hand corner: the `: palette` hint
-// and (when live) the watch dot. Two-tone palette only — accent for the key
-// glyph + dot, muted for the descriptive label.
-func rightChips(live bool) string {
+// navGridColumn renders the 8 resource mnemonics as a 2-column × 4-row
+// grid, vertically centered within rows total rows so it visually balances
+// the 6-row logo column. The active item carries a ▌ + accent fg; inactive
+// items render in muted color.
+func navGridColumn(items []NavItem, w, rows int) []string {
+	if w < 1 {
+		w = 1
+	}
+	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
 	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted)
-	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent)
+	mnemonicMuted := lipgloss.NewStyle().Foreground(theme.ColorMuted2)
 
-	paletteHint := accent.Render(":") + " " + muted.Render("palette")
-	if !live {
-		return paletteHint
+	cellW := (w - 2) / 2 // 2-col gap between left/right cells
+	if cellW < 8 {
+		cellW = 8
 	}
-	dot := accent.Render("●")
-	return paletteHint + "   " + dot + " " + muted.Render("live")
-}
+	cell := func(it NavItem) string {
+		label := muted.Render(it.Label)
+		mnemonic := mnemonicMuted.Render(it.Mnemonic)
+		prefix := "  "
+		if it.Active {
+			label = accent.Render(it.Label)
+			mnemonic = accent.Render(it.Mnemonic)
+			prefix = accent.Render("▌ ")
+		}
+		s := prefix + mnemonic + " " + label
+		if lw := lipgloss.Width(s); lw < cellW {
+			s += strings.Repeat(" ", cellW-lw)
+		}
+		return s
+	}
 
-// nsChip renders a colored namespace chip — the visual anchor of the modern
-// shell. Color is derived from theme.NSColor (per-namespace palette) so
-// users develop muscle memory between color and scope.
-func nsChip(ns string) string {
-	ns = strings.TrimSpace(ns)
-	if ns == "" || ns == "all" {
-		return lipgloss.NewStyle().
-			Foreground(theme.ColorMuted).
-			Bold(true).
-			Render("▆ all namespaces")
+	// Split into two halves: items[0:4] on the left, items[4:8] on the right.
+	half := (len(items) + 1) / 2
+	gridRows := []string{}
+	for i := 0; i < half; i++ {
+		left := cell(items[i])
+		right := ""
+		if i+half < len(items) {
+			right = cell(items[i+half])
+		}
+		gridRows = append(gridRows, left+"  "+right)
 	}
-	return components.NSChipBold(ns)
-}
 
-// flex3 lays out left | center | right segments across `width`, biasing the
-// center to be horizontally centered when there's enough slack.
-func flex3(width int, left, mid, right string) string {
-	inner := width - 2
-	if inner < 1 {
-		inner = 1
+	// Center vertically within `rows` total rows: 6 total - 4 grid = 2 blank;
+	// split 1 above + 1 below.
+	top := (rows - len(gridRows)) / 2
+	if top < 0 {
+		top = 0
 	}
-	lW := lipgloss.Width(left)
-	mW := lipgloss.Width(mid)
-	rW := lipgloss.Width(right)
-	slack := inner - lW - mW - rW
-	if slack < 2 {
-		// Fallback: drop center, just left/right.
-		return flex(width, left, right)
-	}
-	gapL := slack / 2
-	gapR := slack - gapL
-	idealLeftEnd := (inner - mW) / 2
-	if idealLeftEnd > lW {
-		gapL = idealLeftEnd - lW
-		gapR = slack - gapL
-		if gapR < 1 {
-			gapR = 1
-			gapL = slack - gapR
+	out := make([]string, rows)
+	for i := range out {
+		switch {
+		case i < top:
+			out[i] = ""
+		case i-top < len(gridRows):
+			out[i] = gridRows[i-top]
+		default:
+			out[i] = ""
 		}
 	}
-	line := left + strings.Repeat(" ", gapL) + mid + strings.Repeat(" ", gapR) + right
-	return lipgloss.NewStyle().Padding(0, 1).Width(width).Render(line)
+	return out
 }
 
-// flex lays out a left and right segment across `width` cells, padding the
-// middle with spaces. If they don't fit, the left side is truncated.
-func flex(width int, left, right string) string {
-	inner := width - 2
-	if inner < 1 {
-		inner = 1
+// navGridWidth returns the rendered width of the nav grid: 2 × cellWidth
+// + 2-col inter-cell gap. cellWidth is sized to fit the longest label
+// (currently "deployments" / "configmaps" / "namespaces" = 11 chars) plus
+// cursor(2) + mnemonic(2) + gap(1) = 16 cells.
+func navGridWidth(items []NavItem) int {
+	const cellW = 16
+	return cellW*2 + 2
+}
+
+// cond returns a if test is true, else b. Saves a few `if` blocks at
+// call sites that need a conditional value in an expression.
+func cond[T any](test bool, a, b T) T {
+	if test {
+		return a
 	}
-	gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		left = truncToWidth(left, inner-lipgloss.Width(right)-1)
-		gap = 1
+	return b
+}
+
+// trimClusterIdent collapses an ARN-style identity to its trailing
+// path segment so the kvLine doesn't show "arn:aws:eks:.../cluster/foo"
+// three times in a row. Non-ARN strings pass through unchanged.
+func trimClusterIdent(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "—" {
+		return s
 	}
-	line := left + strings.Repeat(" ", gap) + right
-	return lipgloss.NewStyle().Padding(0, 1).Width(width).Render(line)
+	if i := strings.LastIndex(s, "/"); i >= 0 && i < len(s)-1 {
+		return s[i+1:]
+	}
+	return s
+}
+
+func renderTopBarNarrow(inner int, cfg TopBarConfig) string {
+	val := "—"
+	valColor := theme.ColorFG
+	if cfg.NodesTotal > 0 {
+		val = fmt.Sprintf("%d/%d", cfg.NodesReady, cfg.NodesTotal)
+		if cfg.NodesReady == cfg.NodesTotal {
+			valColor = theme.ColorOk
+		} else {
+			valColor = theme.ColorWarn
+		}
+	}
+	dim := lipgloss.NewStyle().Foreground(theme.ColorMuted)
+	row := dim.Render("ctx ") +
+		lipgloss.NewStyle().Foreground(theme.ColorFG).Bold(true).Render(safeStr(cfg.Context, "—")) +
+		"   " + dim.Render("nodes ") +
+		lipgloss.NewStyle().Foreground(valColor).Bold(true).Render(val)
+	if w := lipgloss.Width(row); w < inner {
+		row += strings.Repeat(" ", inner-w)
+	}
+	return row
+}
+
+func safeStr(s, def string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return def
+	}
+	return s
 }
 
 // truncToWidth clamps a styled string to n display columns by trimming bytes
-// from the right. Used as a fallback when the bar is too narrow for full layout.
+// from the right. Lives here as the canonical home — other layout files
+// reach across for it.
 func truncToWidth(s string, n int) string {
 	if lipgloss.Width(s) <= n {
 		return s

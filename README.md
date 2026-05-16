@@ -1,4 +1,15 @@
-# klens
+<div align="center">
+
+```
+ ██╗  ██╗ ██╗      ███████╗ ███╗   ██╗ ███████╗
+ ██║ ██╔╝ ██║      ██╔════╝ ████╗  ██║ ██╔════╝
+ █████╔╝  ██║      █████╗   ██╔██╗ ██║ ███████╗
+ ██╔═██╗  ██║      ██╔══╝   ██║╚██╗██║ ╚════██║
+ ██║  ██╗ ███████╗ ███████╗ ██║ ╚████║ ███████║
+ ╚═╝  ╚═╝ ╚══════╝ ╚══════╝ ╚═╝  ╚═══╝ ╚══════╝
+```
+
+**A fast, keyboard-driven Kubernetes TUI for engineers who live in their clusters.**
 
 [![CI](https://github.com/hermanu/klens/actions/workflows/ci.yml/badge.svg)](https://github.com/hermanu/klens/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/hermanu/klens?sort=semver)](https://github.com/hermanu/klens/releases/latest)
@@ -6,28 +17,38 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/hermanu/klens)](https://goreportcard.com/report/github.com/hermanu/klens)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A fast, keyboard-driven Kubernetes TUI built for engineers who spend real time in their clusters. Inspired by k9s, rebuilt from scratch with a modern composed shell and first-class secret editing.
+</div>
+
+Inspired by k9s, rebuilt from scratch with a bordered-panel shell, first-class secret editing, and a 16-color ANSI palette that renders identically on every terminal.
 
 ```
-ctx prod-eu  · v1.30  · ▮ payments  · pods 5         ── K L E N S ──         : palette  · ● live
-──────────────────────────────────────────────────────────────────────────────────────────────────
-                                                                                       ● watch
- NAMESPACE  NAME                          READY  STATUS     RST  CPU·m  TREND  AGE   ┃ FOCUSED ITEM
-›payments   api-gateway-7d9f4b8c6-xk2pq    2/2   Running     0     147  ▁▂▃▅▄   3d   ┃ api-gateway-7d9f4b8c6-xk2pq
- payments   worker-5c8b9d7f4-mn3rs         1/1   Running     2      42  ▁▁▂▂▁  12h   ┃ payments · Running · 3d
- payments   worker-5c8b9d7f4-qw7yt         1/1   Running     0      38  ▁▂▁▁▁  12h   ┃
- payments   payment-svc-zp1lm              0/1   CrashLoop  14       0   ─     47m    ┃ LIVE · 60s
- payments   redis-0                        1/1   Running     0      12  ▁▁▁▁▁   7d   ┃ cpu  ▁▂▃▅▄    147m
-                                                                                      ┃ mem  ▃▃▃▄▃    312M
-                                                                                      ┃
-                                                                                      ┃ SPEC
-                                                                                      ┃ namespace  payments
-                                                                                      ┃ node       ip-10-0-1-12
-                                                                                      ┃ ready      2/2
-──────────────────────────────────────────────────────────────────────────────────────────────────
-›  /type to filter…                                        [↵ describe]  [l logs]  [/ filter]  [?]
+┌─ ◎ KLENS 0.3.0 · build a1b2c3d ──────────────────────────────────────────────────────────┐
+│ █▄▀ █   █▀▀ █▄ █ █▀  ctx prod-eu     k8s v1.30    region us-east-1                       │
+│ █ █ █▄▄ █▄▄ █ ▀█ ▄█  user alice      uptime 62d 14h                                      │
+└─────────────────────────────────────────────────────────────────── ● watching ───────────┘
+┌─ RESOURCES ────────┐┌─ PODS [5] ─────────────────────────────────┐┌─ FOCUS ──────────────┐
+│ ▌ 1  pods          ││  NAMESPACE  NAME                  READY    ││ api-gateway-7d9f4b8…  │
+│   2  deployments   ││  payments   api-gateway-7d…       2/2  ●R  ││ payments · Running    │
+│   3  services      ││▸ payments   worker-5c8b9-mn3rs    1/1  ●R  ││                       │
+│   4  nodes         ││  payments   worker-5c8b9-qw7yt    1/1  ●R  ││ METRICS · last 60s    │
+│   5  configmaps    ││  payments   payment-svc-zp1lm     0/1  ●E  ││ ────────────────────  │
+│   6  secrets       ││  payments   redis-0               1/1  ●R  ││ cpu  ▁▂▃▅▄     147m   │
+│   7  namespaces    ││                                            ││ mem  ▃▃▃▄▃     312Mi  │
+│   8  pvcs          ││                                            ││ net↓ ▁▂▃▃▄     58KB/s │
+│                    ││                                            ││ net↑ ▁▂▂▃▃     32KB/s │
+│  CLUSTER           ││                                            ││                       │
+│  ──────────────    ││                                            ││ CONTAINERS            │
+│  nodes     9/9     ││                                            ││ ────────────────────  │
+│  pods      54      ││                                            ││ ▸ api-gateway  ●R rst 0│
+│  cpu  ▃▅▇▆ 62%     ││                                            ││   image  ghcr.io/…    │
+│  mem  ▄▅▆▆ 78%     ││                                            ││                       │
+└──── [ ] cycle ─────┘└────────────────────────────────── 2 / 5 ───┘└───────────────────────┘
+┌─ COMMAND ────────────────────────────────────────────────────────────────────────────────┐
+│ › / type to filter…                                                                      │
+│ <↵> describe  <l> logs  <s> shell  <e> edit  </> filter  <?> help                        │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
-(this is a representation — screenshots and a demo video coming soon)
+(stylised — see [docs/screenshots/](docs/screenshots/) for real captures)
 
 ## Why klens?
 

@@ -163,6 +163,14 @@ func (v ServicesView) Count() (visible, total int) {
 	return len(v.visibleServices()), len(v.services)
 }
 
+// CursorIndex implements views.Cursored.
+func (v ServicesView) CursorIndex() int {
+	if v.table.RowCount() == 0 {
+		return 0
+	}
+	return v.table.SelectedIndex() + 1
+}
+
 // Chips implements views.View.
 func (v ServicesView) Chips() []layout.FilterChip {
 	chips := []layout.FilterChip{}

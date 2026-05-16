@@ -2,6 +2,7 @@ package views
 
 import (
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -141,8 +142,14 @@ func (v LogsView) Update(msg tea.Msg) (LogsView, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "j", keyDown:
+			// In follow mode j is a no-op — the viewport is already pinned to
+			// the newest line, and dropping out of follow on every j press
+			// jumped the viewport to the top (offset=1), making logs feel
+			// like they "wrapped" when in fact follow had just been disabled.
+			if v.follow {
+				return v, nil
+			}
 			v.offset++
-			v.follow = false
 		case "k", "up":
 			if v.offset > 0 {
 				v.offset--
@@ -153,10 +160,24 @@ func (v LogsView) Update(msg tea.Msg) (LogsView, tea.Cmd) {
 			v.follow = false
 		case "G":
 			v.follow = true
-		case "t":
-			// Toggle live tail. Pausing keeps the buffer where it is so the
-			// user can read calmly; resuming snaps back to the newest line.
+		case "t", " ":
+			// Toggle live tail (space is an alias for t). Pausing keeps the
+			// buffer where it is so the user can read calmly; resuming
+			// snaps back to the newest line.
 			v.follow = !v.follow
+			return v, nil
+		case "m":
+			// Drop a marker line — renders as a ──── separator below. Useful
+			// when watching a fast stream and you want to bookmark "from
+			// here, watch for repro". The marker carries a timestamp so the
+			// user can see how long ago they set it.
+			v.lines = append(v.lines, resources.LogLine{
+				Time:     time.Now(),
+				IsMarker: true,
+			})
+			if len(v.lines) > logBufferMax {
+				v.lines = v.lines[len(v.lines)-logBufferMax:]
+			}
 			return v, nil
 		case "c":
 			v.lines = nil
@@ -199,10 +220,12 @@ func (v LogsView) Title() string { return labelLogs }
 // value when LogsView is focused.
 func (v LogsView) Filter() string { return v.filter }
 
-// Count implements views.View — returns the number of buffered lines so the
-// nav rail (and chip strip) can show "showing N lines".
+// Count implements views.View. Returns 0,0 so the panel title chip
+// disappears — "lines" isn't a meaningful count to anchor the user on,
+// and the in-body view scrolls live; a numeric counter just rotted next
+// to the actual content.
 func (v LogsView) Count() (visible, total int) {
-	return len(v.visibleLines()), len(v.lines)
+	return 0, 0
 }
 
 // Chips implements views.View. The scope chip's key is "pods" when fanning out
@@ -253,15 +276,23 @@ func (v LogsView) activePods() []string {
 }
 
 // KeyHints implements views.View. The wrap label flips so the user can
-// see the toggle's current state without opening the help overlay.
+// see the toggle's current state without opening the help overlay. The
+// space/pause hint also flips so the user can tell if scroll is live or
+// paused at a glance.
 func (v LogsView) KeyHints() []layout.KeyHint {
 	wrapLabel := "wrap"
 	if v.wrap {
 		wrapLabel = "no-wrap"
 	}
+	pauseLabel := "pause"
+	if !v.follow {
+		pauseLabel = "resume"
+	}
 	return []layout.KeyHint{
 		{Key: "j/k", Label: "scroll"},
 		{Key: "G", Label: "tail"},
+		{Key: "␣", Label: pauseLabel},
+		{Key: "m", Label: "mark"},
 		{Key: "w", Label: wrapLabel},
 		{Key: "/", Label: labelFilter},
 		{Key: keyEsc, Label: "back"},
@@ -283,7 +314,7 @@ func (v LogsView) Table(width, height int) string {
 		return lipgloss.NewStyle().Foreground(theme.ColorMuted).Padding(1, 2).Render(hint)
 	}
 
-	pageSize := height - 1 // leave one row for the position hint
+	pageSize := height
 	if pageSize < 1 {
 		pageSize = 20
 	}
@@ -319,16 +350,15 @@ func (v LogsView) Table(width, height int) string {
 		}
 	}
 
-	var sb strings.Builder
+	// Join body lines without a trailing newline so the panel's height
+	// clamp sees exactly (end-start) rows. The in-body count hint
+	// ("1-38 of 200") was dropped here too — the panel foot already
+	// surfaces the line total, so duplicating it stole a row of logs.
+	out := make([]string, end-start)
 	for i := start; i < end; i++ {
-		sb.WriteString(rows[i])
-		sb.WriteString("\n")
+		out[i-start] = rows[i]
 	}
-	hint := lipgloss.NewStyle().
-		Foreground(theme.ColorMuted).
-		Render("  " + countHint(start+1, end, len(rows)))
-	sb.WriteString(hint)
-	return sb.String()
+	return strings.Join(out, "\n")
 }
 
 // Details implements views.View — the logs view takes the full width, so the
@@ -355,6 +385,19 @@ func (v LogsView) visibleLines() []resources.LogLine {
 }
 
 func formatLogRow(width int, l resources.LogLine, multi bool, filter string, wrap bool) string {
+	// Markers render as a horizontal separator with a timestamp anchor —
+	// inserted by the `m` key so users can bookmark a moment in a busy
+	// stream. The accent color makes them pop against the muted log rows.
+	if l.IsMarker {
+		ts := l.Time.Format("15:04:05")
+		label := "  ── " + ts + " "
+		fill := width - lipgloss.Width(label)
+		if fill < 1 {
+			fill = 1
+		}
+		return lipgloss.NewStyle().Foreground(theme.ColorAccent).
+			Render(label + strings.Repeat("─", fill))
+	}
 	ts := l.Time.Format("15:04:05.000")
 	tsCol := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render(ts)
 	level := l.Level
@@ -523,38 +566,4 @@ func wrapMessage(s string, width int) []string {
 		out = append(out, line.String())
 	}
 	return out
-}
-
-func countHint(start, end, total int) string {
-	if total == 0 {
-		return ""
-	}
-	return strFmt(start, end, total)
-}
-
-// strFmt is a tiny helper kept inline to avoid pulling fmt for one Sprintf.
-func strFmt(a, b, c int) string {
-	return itoa(a) + "–" + itoa(b) + " of " + itoa(c)
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		b[i] = '-'
-	}
-	return string(b[i:])
 }
