@@ -71,7 +71,7 @@ type DeploymentItem struct {
 	Ready     string
 	UpToDate  int32
 	Available int32
-	Replicas  int32 // total desired replicas (Status.Replicas)
+	Replicas  int32 // observed replica count from Status.Replicas; use Ready string for desired/actual display
 	Strategy  string
 	Image     string            // first container image — used by the SPEC pane
 	Selector  map[string]string // pod-template label selector; used to scope multi-pod log tails

@@ -41,10 +41,17 @@ func (s *DeploymentSvc) ListDeployments(ctx context.Context, namespace string) (
 		if cs := d.Spec.Template.Spec.Containers; len(cs) > 0 {
 			image = cs[0].Image
 		}
+		// Ready denominator uses Spec.Replicas (desired) not Status.Replicas (observed).
+		// During a rollout or scale-down, Status.Replicas may be higher than Spec.Replicas
+		// while old pods terminate. Spec.Replicas is the ground truth.
+		desired := int32(1)
+		if d.Spec.Replicas != nil {
+			desired = *d.Spec.Replicas
+		}
 		items = append(items, DeploymentItem{
 			Name:      d.Name,
 			Namespace: d.Namespace,
-			Ready:     fmt.Sprintf("%d/%d", d.Status.ReadyReplicas, d.Status.Replicas),
+			Ready:     fmt.Sprintf("%d/%d", d.Status.ReadyReplicas, desired),
 			UpToDate:  d.Status.UpdatedReplicas,
 			Available: d.Status.AvailableReplicas,
 			Replicas:  d.Status.Replicas,

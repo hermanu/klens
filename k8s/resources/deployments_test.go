@@ -14,16 +14,19 @@ import (
 
 func TestDeploymentSvc_ListDeployments(t *testing.T) {
 	ready := int32(2)
-	replicas := int32(3)
+	desired := int32(3)
 	fakeClient := fake.NewSimpleClientset(&appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "my-deploy",
 			Namespace:         "default",
 			CreationTimestamp: metav1.NewTime(time.Now().Add(-10 * time.Minute)),
 		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &desired,
+		},
 		Status: appsv1.DeploymentStatus{
 			ReadyReplicas:     ready,
-			Replicas:          replicas,
+			Replicas:          desired,
 			UpdatedReplicas:   2,
 			AvailableReplicas: 2,
 		},
@@ -65,5 +68,31 @@ func TestDeploymentSvc_ListDeployments_Empty(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Errorf("want 0 deployments, got %d", len(items))
+	}
+}
+
+func TestDeploymentSvc_ListDeployments_RolloutDesiredCount(t *testing.T) {
+	// During a rollout or scale-down Status.Replicas (observed) can exceed
+	// Spec.Replicas (desired) while old pods terminate. Ready must show the
+	// desired count so "3/3" is not misreported as "3/5".
+	desired := int32(3)
+	fakeClient := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "rolling", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &desired,
+		},
+		Status: appsv1.DeploymentStatus{
+			ReadyReplicas: 3,
+			Replicas:      5, // old pods still terminating
+		},
+	})
+
+	svc := resources.NewDeploymentSvc(fakeClient)
+	items, err := svc.ListDeployments(context.Background(), "default")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if items[0].Ready != "3/3" {
+		t.Errorf("want Ready=3/3 (desired), got %s", items[0].Ready)
 	}
 }
