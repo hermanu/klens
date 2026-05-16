@@ -38,13 +38,13 @@ func (s *NodeSvc) ListNodes(ctx context.Context) ([]NodeItem, error) {
 
 func nodeToItem(n corev1.Node) NodeItem {
 	cpu, mem, pods := "", "", ""
-	if q, ok := n.Status.Capacity[corev1.ResourceCPU]; ok {
+	if q, ok := n.Status.Allocatable[corev1.ResourceCPU]; ok {
 		cpu = q.String()
 	}
-	if q, ok := n.Status.Capacity[corev1.ResourceMemory]; ok {
+	if q, ok := n.Status.Allocatable[corev1.ResourceMemory]; ok {
 		mem = q.String()
 	}
-	if q, ok := n.Status.Capacity[corev1.ResourcePods]; ok {
+	if q, ok := n.Status.Allocatable[corev1.ResourcePods]; ok {
 		pods = q.String()
 	}
 	return NodeItem{

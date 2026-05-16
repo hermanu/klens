@@ -174,9 +174,9 @@ type NodeItem struct {
 	Version string
 	Kernel  string // kernel version from NodeInfo (may be empty)
 	Runtime string // container runtime version (may be empty)
-	CPU     string // capacity[cpu]
-	Memory  string // capacity[memory] — human-readable, e.g. "16Gi"
-	Pods    string // capacity[pods]
+	CPU     string // allocatable[cpu] — excludes OS/kubelet reserved resources
+	Memory  string // allocatable[memory] — human-readable, e.g. "14Gi"
+	Pods    string // allocatable[pods]
 	Age     time.Duration
 }
 
