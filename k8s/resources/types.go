@@ -66,16 +66,17 @@ type PodDescription struct {
 
 // DeploymentItem is a minimal deployment summary used by the deployments list view.
 type DeploymentItem struct {
-	Name      string
-	Namespace string
-	Ready     string
-	UpToDate  int32
-	Available int32
-	Replicas  int32 // observed replica count from Status.Replicas; use Ready string for desired/actual display
-	Strategy  string
-	Image     string            // first container image — used by the SPEC pane
-	Selector  map[string]string // pod-template label selector; used to scope multi-pod log tails
-	Age       time.Duration
+	Name       string
+	Namespace  string
+	Ready      string
+	UpToDate   int32
+	Available  int32
+	Replicas   int32 // observed replica count from Status.Replicas; use Ready string for desired/actual display
+	Strategy   string
+	Image      string            // first container image — used by the SPEC pane
+	Selector   map[string]string // pod-template label selector; used to scope multi-pod log tails
+	Conditions []string          // rollout conditions, e.g. ["Available=True", "Progressing=False"]
+	Age        time.Duration
 }
 
 // GetName implements Resource.

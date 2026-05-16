@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,9 +33,7 @@ func (s *DeploymentSvc) ListDeployments(ctx context.Context, namespace string) (
 		var selector map[string]string
 		if d.Spec.Selector != nil && len(d.Spec.Selector.MatchLabels) > 0 {
 			selector = make(map[string]string, len(d.Spec.Selector.MatchLabels))
-			for k, v := range d.Spec.Selector.MatchLabels {
-				selector[k] = v
-			}
+			maps.Copy(selector, d.Spec.Selector.MatchLabels)
 		}
 		// Image — pick the first container's image as the SPEC summary.
 		image := ""
@@ -48,17 +47,22 @@ func (s *DeploymentSvc) ListDeployments(ctx context.Context, namespace string) (
 		if d.Spec.Replicas != nil {
 			desired = *d.Spec.Replicas
 		}
+		conds := make([]string, 0, len(d.Status.Conditions))
+		for _, c := range d.Status.Conditions {
+			conds = append(conds, fmt.Sprintf("%s=%s", c.Type, c.Status))
+		}
 		items = append(items, DeploymentItem{
-			Name:      d.Name,
-			Namespace: d.Namespace,
-			Ready:     fmt.Sprintf("%d/%d", d.Status.ReadyReplicas, desired),
-			UpToDate:  d.Status.UpdatedReplicas,
-			Available: d.Status.AvailableReplicas,
-			Replicas:  d.Status.Replicas,
-			Strategy:  string(d.Spec.Strategy.Type),
-			Image:     image,
-			Selector:  selector,
-			Age:       time.Since(d.CreationTimestamp.Time),
+			Name:       d.Name,
+			Namespace:  d.Namespace,
+			Ready:      fmt.Sprintf("%d/%d", d.Status.ReadyReplicas, desired),
+			UpToDate:   d.Status.UpdatedReplicas,
+			Available:  d.Status.AvailableReplicas,
+			Replicas:   d.Status.Replicas,
+			Strategy:   string(d.Spec.Strategy.Type),
+			Image:      image,
+			Selector:   selector,
+			Conditions: conds,
+			Age:        time.Since(d.CreationTimestamp.Time),
 		})
 	}
 	return items, nil

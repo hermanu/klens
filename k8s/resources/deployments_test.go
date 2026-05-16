@@ -6,6 +6,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
@@ -94,5 +95,39 @@ func TestDeploymentSvc_ListDeployments_RolloutDesiredCount(t *testing.T) {
 	}
 	if items[0].Ready != "3/3" {
 		t.Errorf("want Ready=3/3 (desired), got %s", items[0].Ready)
+	}
+}
+
+func TestDeploymentSvc_ListDeployments_Conditions(t *testing.T) {
+	// Deployment shows Ready=3/3 but rollout has timed out — Progressing=False.
+	// Conditions must surface this so the user doesn't have to leave klens.
+	desired := int32(3)
+	fakeClient := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "stuck", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: &desired},
+		Status: appsv1.DeploymentStatus{
+			ReadyReplicas: 3,
+			Replicas:      3,
+			Conditions: []appsv1.DeploymentCondition{
+				{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
+				{Type: appsv1.DeploymentProgressing, Status: corev1.ConditionFalse},
+			},
+		},
+	})
+
+	svc := resources.NewDeploymentSvc(fakeClient)
+	items, err := svc.ListDeployments(context.Background(), "default")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	d := items[0]
+	if len(d.Conditions) != 2 {
+		t.Fatalf("want 2 conditions, got %d", len(d.Conditions))
+	}
+	if d.Conditions[0] != "Available=True" {
+		t.Errorf("want Conditions[0]=Available=True, got %s", d.Conditions[0])
+	}
+	if d.Conditions[1] != "Progressing=False" {
+		t.Errorf("want Conditions[1]=Progressing=False, got %s", d.Conditions[1])
 	}
 }
