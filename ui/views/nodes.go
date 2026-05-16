@@ -276,6 +276,9 @@ func (v NodesView) focusKVs() []layout.KV {
 	if n.Taints != "" && n.Taints != "<none>" {
 		kvs = append(kvs, layout.KV{Key: "taints", Value: n.Taints})
 	}
+	if n.Conditions != "" && n.Conditions != "<none>" {
+		kvs = append(kvs, layout.KV{Key: "conditions", Value: n.Conditions})
+	}
 	kvs = append(kvs, layout.KV{Key: kvAge, Value: fmtAge(n.Age)})
 	return kvs
 }

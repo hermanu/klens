@@ -49,18 +49,20 @@ func nodeToItem(n corev1.Node) NodeItem {
 		pods = q.String()
 	}
 	taints := formatTaints(n.Spec.Taints)
+	nodeConds := formatNodeConditions(n.Status.Conditions)
 	return NodeItem{
-		Name:    n.Name,
-		Status:  nodeStatus(n),
-		Roles:   nodeRoles(n),
-		Version: n.Status.NodeInfo.KubeletVersion,
-		Kernel:  n.Status.NodeInfo.KernelVersion,
-		Runtime: n.Status.NodeInfo.ContainerRuntimeVersion,
-		CPU:     cpu,
-		Memory:  mem,
-		Pods:    pods,
-		Taints:  taints,
-		Age:     time.Since(n.CreationTimestamp.Time),
+		Name:       n.Name,
+		Status:     nodeStatus(n),
+		Roles:      nodeRoles(n),
+		Version:    n.Status.NodeInfo.KubeletVersion,
+		Kernel:     n.Status.NodeInfo.KernelVersion,
+		Runtime:    n.Status.NodeInfo.ContainerRuntimeVersion,
+		CPU:        cpu,
+		Memory:     mem,
+		Pods:       pods,
+		Taints:     taints,
+		Conditions: nodeConds,
+		Age:        time.Since(n.CreationTimestamp.Time),
 	}
 }
 
@@ -105,4 +107,29 @@ func formatTaints(taints []corev1.Taint) string {
 		}
 	}
 	return strings.Join(parts, ",")
+}
+
+// formatNodeConditions returns a comma-joined list of pressure conditions that
+// are currently True (active). Returns "<none>" when the node is healthy.
+// Ready is excluded — it is already captured in NodeItem.Status.
+func formatNodeConditions(conditions []corev1.NodeCondition) string {
+	pressure := []corev1.NodeConditionType{
+		corev1.NodeMemoryPressure,
+		corev1.NodeDiskPressure,
+		corev1.NodePIDPressure,
+		corev1.NodeNetworkUnavailable,
+	}
+	active := make([]string, 0, len(pressure))
+	for _, pt := range pressure {
+		for _, cond := range conditions {
+			if cond.Type == pt && cond.Status == corev1.ConditionTrue {
+				active = append(active, string(cond.Type))
+				break
+			}
+		}
+	}
+	if len(active) == 0 {
+		return "<none>"
+	}
+	return strings.Join(active, ",")
 }

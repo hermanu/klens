@@ -182,3 +182,52 @@ func TestNodeSvc_ListNodes_NoTaints(t *testing.T) {
 		t.Errorf("want Taints=<none>, got %s", items[0].Taints)
 	}
 }
+
+func TestNodeSvc_ListNodes_PressureConditions(t *testing.T) {
+	// Node is Ready but simultaneously under memory and disk pressure —
+	// this is invisible in the current view but critical for scheduling decisions.
+	fakeClient := fake.NewSimpleClientset(&corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "pressured-node"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+				{Type: corev1.NodeMemoryPressure, Status: corev1.ConditionTrue},
+				{Type: corev1.NodeDiskPressure, Status: corev1.ConditionTrue},
+				{Type: corev1.NodePIDPressure, Status: corev1.ConditionFalse},
+			},
+		},
+	})
+
+	svc := resources.NewNodeSvc(fakeClient)
+	items, err := svc.ListNodes(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "MemoryPressure,DiskPressure"
+	if items[0].Conditions != want {
+		t.Errorf("want Conditions=%q, got %q", want, items[0].Conditions)
+	}
+}
+
+func TestNodeSvc_ListNodes_NoPressure(t *testing.T) {
+	fakeClient := fake.NewSimpleClientset(&corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "healthy-node"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+				{Type: corev1.NodeMemoryPressure, Status: corev1.ConditionFalse},
+				{Type: corev1.NodeDiskPressure, Status: corev1.ConditionFalse},
+				{Type: corev1.NodePIDPressure, Status: corev1.ConditionFalse},
+			},
+		},
+	})
+
+	svc := resources.NewNodeSvc(fakeClient)
+	items, err := svc.ListNodes(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if items[0].Conditions != "<none>" {
+		t.Errorf("want Conditions=<none>, got %s", items[0].Conditions)
+	}
+}

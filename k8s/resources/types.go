@@ -168,17 +168,18 @@ func (n NamespaceItem) GetAge() time.Duration { return n.Age }
 
 // NodeItem is a minimal node summary used by the nodes list view.
 type NodeItem struct {
-	Name    string
-	Status  string
-	Roles   string
-	Version string
-	Kernel  string // kernel version from NodeInfo (may be empty)
-	Runtime string // container runtime version (may be empty)
-	CPU     string // allocatable[cpu] — excludes OS/kubelet reserved resources
-	Memory  string // allocatable[memory] — human-readable, e.g. "14Gi"
-	Pods    string // allocatable[pods]
-	Taints  string // taint summary, e.g. "key:NoSchedule,key=val:NoExecute" or "<none>"
-	Age     time.Duration
+	Name       string
+	Status     string
+	Roles      string
+	Version    string
+	Kernel     string // kernel version from NodeInfo (may be empty)
+	Runtime    string // container runtime version (may be empty)
+	CPU        string // allocatable[cpu] — excludes OS/kubelet reserved resources
+	Memory     string // allocatable[memory] — human-readable, e.g. "14Gi"
+	Pods       string // allocatable[pods]
+	Taints     string // taint summary, e.g. "key:NoSchedule,key=val:NoExecute" or "<none>"
+	Conditions string // active pressure conditions, e.g. "MemoryPressure,DiskPressure" or "<none>"
+	Age        time.Duration
 }
 
 // GetName implements Resource.
