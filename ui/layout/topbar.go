@@ -20,7 +20,7 @@ import (
 )
 
 // KlensLogo is the 6-row block-shadow KLENS banner shown in the top bar
-// body at width >= topBarWideAt. Same figlet "ANSI Shadow" style used in
+// body at width >= TopBarWideAt. Same figlet "ANSI Shadow" style used in
 // the README hero — combines █ for the letter fills with box-drawing
 // glyphs (╗║╔╚╝═) for the shadow edge. Renders cleanly on any terminal
 // that supports unicode box-drawing (every modern one).
@@ -69,23 +69,24 @@ func TopBarFoot(pulseOn, live bool) string {
 // width is the INNER content width (caller passes outerW-2).
 //
 // Wide path returns 6 rows (logo on the left, KV grid on the right); narrow
-// path returns a single-row fallback at widths < topBarWideAt. The caller
+// path returns a single-row fallback at widths < TopBarWideAt. The caller
 // passes Height accordingly via the geometry constants in app/app.go.
 func TopBar(width int, cfg TopBarConfig) string {
 	if width < 8 {
 		width = 8
 	}
-	if width < topBarWideAt {
+	if width < TopBarWideAt {
 		return renderTopBarNarrow(width, cfg)
 	}
 	return renderTopBarWide(width, cfg)
 }
 
-// topBarWideAt mirrors the app/app.go constant of the same name: minimum
-// inner width at which the wide path renders. Below this, the body
-// collapses to a single-row identity strip. 80 cells = logo(42) + gap(2) +
-// minimum KV column(~36) — narrower than this would truncate the KVs.
-const topBarWideAt = 80
+// TopBarWideAt is the minimum inner panel width at which the wide top-bar
+// path renders. Below this the body collapses to a single-row identity strip.
+// 80 cells = logo(42) + gap(2) + minimum KV column(~36).
+// app/app.go uses this constant to decide between topBarRowsWide and
+// topBarRowsNarrow — both must agree on the threshold.
+const TopBarWideAt = 80
 
 // navGridAt is the minimum inner width at which the resource nav grid
 // joins the wide body as a third column. Logo(42) + gap(2) + min KV(24)

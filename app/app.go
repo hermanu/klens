@@ -44,7 +44,7 @@ const (
 )
 
 // Canonical resource names shared between viewKindName, paletteNameToView,
-// navRailConfig, and railOrder. Defined as constants to satisfy goconst.
+// navItems, and the mnemonic routing in updateGlobal. Defined as constants to satisfy goconst.
 const (
 	viewNamePods        = "pods"
 	viewNameDeployments = "deployments"
@@ -63,7 +63,6 @@ const (
 	detailsWidth     = 44
 	topBarRowsWide   = 8   // 1 top border + 6 body + 1 bottom border
 	topBarRowsNarrow = 3   // 1 top border + 1 body + 1 bottom border
-	topBarWideAt     = 80  // width >= this enables the 6-row block logo + KV column
 	cmdBarRows       = 4   // 1 top border + 2 body + 1 bottom border
 	minDetailsAt     = 120 // unchanged — drop right column below this width
 )
@@ -209,7 +208,6 @@ type ClusterInfo struct {
 	User       string
 	K8sVersion string
 	Region     string
-	KlensVer   string
 }
 
 // New builds the root model. Non-empty overrides take precedence over the
@@ -269,7 +267,6 @@ func New(kubeconfigOverride, namespaceOverride string) (Model, error) {
 		logTailRef:        &logTail,
 		restartWatcherRef: &restart,
 		cluster: ClusterInfo{
-			KlensVer:   "0.3.0",
 			K8sVersion: "—",
 			Region:     "—",
 			User:       "—",
@@ -992,7 +989,7 @@ func (m Model) View() string {
 
 	// Heights
 	topBarH := topBarRowsWide
-	if m.width < topBarWideAt {
+	if m.width < layout.TopBarWideAt {
 		topBarH = topBarRowsNarrow
 	}
 	extraBottom := 0
@@ -1026,7 +1023,7 @@ func (m Model) View() string {
 		User:       fallback(m.cluster.User, "—"),
 		K8sVersion: fallback(m.cluster.K8sVersion, "—"),
 		Region:     fallback(m.cluster.Region, "—"),
-		KlensVer:   fallback(m.cluster.KlensVer, m.buildInfo.Version),
+		KlensVer:   fallback(m.buildInfo.Version, "dev"),
 		BuildID:    m.buildID(),
 		Uptime:     cm.Uptime,
 		NodesReady: cm.NodesReady,
@@ -1105,13 +1102,9 @@ func (m Model) View() string {
 	return frame
 }
 
-// navRailConfig builds the NavRailConfig from current model state.
-// navItems returns the 8-entry mnemonic list rendered by the horizontal
-// NavStrip. The active entry is keyed off m.current so the strip
-// highlights the focused resource. The cluster aggregate stats that used
-// to ride along (NavRailConfig.Cluster) are gone with the rail — the
-// top bar's KV column and the table panel's [N] title carry their own
-// counts now.
+// navItems returns the 8-entry mnemonic list rendered in the top bar's
+// nav grid column. The active entry is keyed off m.current so the grid
+// highlights the focused resource.
 func (m Model) navItems() []layout.NavItem {
 	return []layout.NavItem{
 		{Mnemonic: "1", Label: viewNamePods, Active: m.current == viewPods},
