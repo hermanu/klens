@@ -135,3 +135,50 @@ func TestNodeSvc_ListNodes_ShowsAllocatableNotCapacity(t *testing.T) {
 		t.Errorf("want Pods=110, got %s", n.Pods)
 	}
 }
+
+func TestNodeSvc_ListNodes_Taints(t *testing.T) {
+	fakeClient := fake.NewSimpleClientset(&corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "tainted-node"},
+		Spec: corev1.NodeSpec{
+			Taints: []corev1.Taint{
+				{Key: "node-role.kubernetes.io/master", Effect: corev1.TaintEffectNoSchedule},
+				{Key: "dedicated", Value: "gpu", Effect: corev1.TaintEffectNoExecute},
+			},
+		},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+			},
+		},
+	})
+
+	svc := resources.NewNodeSvc(fakeClient)
+	items, err := svc.ListNodes(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "node-role.kubernetes.io/master:NoSchedule,dedicated=gpu:NoExecute"
+	if items[0].Taints != want {
+		t.Errorf("want Taints=%q, got %q", want, items[0].Taints)
+	}
+}
+
+func TestNodeSvc_ListNodes_NoTaints(t *testing.T) {
+	fakeClient := fake.NewSimpleClientset(&corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "clean-node"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+			},
+		},
+	})
+
+	svc := resources.NewNodeSvc(fakeClient)
+	items, err := svc.ListNodes(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if items[0].Taints != "<none>" {
+		t.Errorf("want Taints=<none>, got %s", items[0].Taints)
+	}
+}

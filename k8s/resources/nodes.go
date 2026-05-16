@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -47,6 +48,7 @@ func nodeToItem(n corev1.Node) NodeItem {
 	if q, ok := n.Status.Allocatable[corev1.ResourcePods]; ok {
 		pods = q.String()
 	}
+	taints := formatTaints(n.Spec.Taints)
 	return NodeItem{
 		Name:    n.Name,
 		Status:  nodeStatus(n),
@@ -57,6 +59,7 @@ func nodeToItem(n corev1.Node) NodeItem {
 		CPU:     cpu,
 		Memory:  mem,
 		Pods:    pods,
+		Taints:  taints,
 		Age:     time.Since(n.CreationTimestamp.Time),
 	}
 }
@@ -76,11 +79,8 @@ func nodeStatus(n corev1.Node) string {
 func nodeRoles(n corev1.Node) string {
 	roles := make([]string, 0)
 	for label := range n.Labels {
-		if strings.HasPrefix(label, rolePrefix) {
-			role := strings.TrimPrefix(label, rolePrefix)
-			if role != "" {
-				roles = append(roles, role)
-			}
+		if role, ok := strings.CutPrefix(label, rolePrefix); ok && role != "" {
+			roles = append(roles, role)
 		}
 	}
 	if len(roles) == 0 {
@@ -88,4 +88,21 @@ func nodeRoles(n corev1.Node) string {
 	}
 	sort.Strings(roles)
 	return strings.Join(roles, ",")
+}
+
+// formatTaints renders node taints as "key:Effect" or "key=value:Effect" pairs
+// joined by ",". Returns "<none>" when the node has no taints.
+func formatTaints(taints []corev1.Taint) string {
+	if len(taints) == 0 {
+		return "<none>"
+	}
+	parts := make([]string, 0, len(taints))
+	for _, t := range taints {
+		if t.Value != "" {
+			parts = append(parts, fmt.Sprintf("%s=%s:%s", t.Key, t.Value, t.Effect))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s:%s", t.Key, t.Effect))
+		}
+	}
+	return strings.Join(parts, ",")
 }

@@ -177,6 +177,7 @@ type NodeItem struct {
 	CPU     string // allocatable[cpu] — excludes OS/kubelet reserved resources
 	Memory  string // allocatable[memory] — human-readable, e.g. "14Gi"
 	Pods    string // allocatable[pods]
+	Taints  string // taint summary, e.g. "key:NoSchedule,key=val:NoExecute" or "<none>"
 	Age     time.Duration
 }
 
