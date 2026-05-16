@@ -248,7 +248,7 @@ func (v NodesView) Details(width, height int) string {
 
 // focusKVs returns the SPEC fields for the focused node. Kernel and runtime
 // are only included when populated (older clusters / minikube sometimes leave
-// them empty). Capacity values come straight from Status.Capacity in resources.
+// them empty). Allocatable values come straight from Status.Allocatable in resources.
 func (v NodesView) focusKVs() []layout.KV {
 	n := v.selectedNode()
 	if n == nil {
@@ -265,13 +265,19 @@ func (v NodesView) focusKVs() []layout.KV {
 		kvs = append(kvs, layout.KV{Key: "runtime", Value: n.Runtime})
 	}
 	if n.CPU != "" {
-		kvs = append(kvs, layout.KV{Key: "cpu cap", Value: n.CPU})
+		kvs = append(kvs, layout.KV{Key: "cpu alloc", Value: n.CPU})
 	}
 	if n.Memory != "" {
-		kvs = append(kvs, layout.KV{Key: "mem cap", Value: n.Memory})
+		kvs = append(kvs, layout.KV{Key: "mem alloc", Value: n.Memory})
 	}
 	if n.Pods != "" {
-		kvs = append(kvs, layout.KV{Key: "pods cap", Value: n.Pods})
+		kvs = append(kvs, layout.KV{Key: "pods alloc", Value: n.Pods})
+	}
+	if n.Taints != "" && n.Taints != "<none>" {
+		kvs = append(kvs, layout.KV{Key: "taints", Value: n.Taints})
+	}
+	if n.Conditions != "" && n.Conditions != "<none>" {
+		kvs = append(kvs, layout.KV{Key: "conditions", Value: n.Conditions})
 	}
 	kvs = append(kvs, layout.KV{Key: kvAge, Value: fmtAge(n.Age)})
 	return kvs

@@ -66,16 +66,17 @@ type PodDescription struct {
 
 // DeploymentItem is a minimal deployment summary used by the deployments list view.
 type DeploymentItem struct {
-	Name      string
-	Namespace string
-	Ready     string
-	UpToDate  int32
-	Available int32
-	Replicas  int32 // total desired replicas (Status.Replicas)
-	Strategy  string
-	Image     string            // first container image — used by the SPEC pane
-	Selector  map[string]string // pod-template label selector; used to scope multi-pod log tails
-	Age       time.Duration
+	Name       string
+	Namespace  string
+	Ready      string
+	UpToDate   int32
+	Available  int32
+	Replicas   int32 // observed replica count from Status.Replicas; use Ready string for desired/actual display
+	Strategy   string
+	Image      string            // first container image — used by the SPEC pane
+	Selector   map[string]string // pod-template label selector; used to scope multi-pod log tails
+	Conditions []string          // rollout conditions, e.g. ["Available=True", "Progressing=False"]
+	Age        time.Duration
 }
 
 // GetName implements Resource.
@@ -168,16 +169,18 @@ func (n NamespaceItem) GetAge() time.Duration { return n.Age }
 
 // NodeItem is a minimal node summary used by the nodes list view.
 type NodeItem struct {
-	Name    string
-	Status  string
-	Roles   string
-	Version string
-	Kernel  string // kernel version from NodeInfo (may be empty)
-	Runtime string // container runtime version (may be empty)
-	CPU     string // capacity[cpu]
-	Memory  string // capacity[memory] — human-readable, e.g. "16Gi"
-	Pods    string // capacity[pods]
-	Age     time.Duration
+	Name       string
+	Status     string
+	Roles      string
+	Version    string
+	Kernel     string // kernel version from NodeInfo (may be empty)
+	Runtime    string // container runtime version (may be empty)
+	CPU        string // allocatable[cpu] — excludes OS/kubelet reserved resources
+	Memory     string // allocatable[memory] — human-readable, e.g. "14Gi"
+	Pods       string // allocatable[pods]
+	Taints     string // taint summary, e.g. "key:NoSchedule,key=val:NoExecute" or "<none>"
+	Conditions string // active pressure conditions, e.g. "MemoryPressure,DiskPressure" or "<none>"
+	Age        time.Duration
 }
 
 // GetName implements Resource.

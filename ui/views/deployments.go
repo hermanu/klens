@@ -261,6 +261,9 @@ func (v DeploymentsView) focusKVs() []layout.KV {
 	if sel := joinSelector(d.Selector); sel != "" {
 		kvs = append(kvs, layout.KV{Key: "selector", Value: truncSelector(sel)})
 	}
+	if len(d.Conditions) > 0 {
+		kvs = append(kvs, layout.KV{Key: "conditions", Value: strings.Join(d.Conditions, " ")})
+	}
 	kvs = append(kvs, layout.KV{Key: kvAge, Value: fmtAge(d.Age)})
 	return kvs
 }

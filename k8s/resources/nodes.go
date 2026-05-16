@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -38,26 +39,30 @@ func (s *NodeSvc) ListNodes(ctx context.Context) ([]NodeItem, error) {
 
 func nodeToItem(n corev1.Node) NodeItem {
 	cpu, mem, pods := "", "", ""
-	if q, ok := n.Status.Capacity[corev1.ResourceCPU]; ok {
+	if q, ok := n.Status.Allocatable[corev1.ResourceCPU]; ok {
 		cpu = q.String()
 	}
-	if q, ok := n.Status.Capacity[corev1.ResourceMemory]; ok {
+	if q, ok := n.Status.Allocatable[corev1.ResourceMemory]; ok {
 		mem = q.String()
 	}
-	if q, ok := n.Status.Capacity[corev1.ResourcePods]; ok {
+	if q, ok := n.Status.Allocatable[corev1.ResourcePods]; ok {
 		pods = q.String()
 	}
+	taints := formatTaints(n.Spec.Taints)
+	nodeConds := formatNodeConditions(n.Status.Conditions)
 	return NodeItem{
-		Name:    n.Name,
-		Status:  nodeStatus(n),
-		Roles:   nodeRoles(n),
-		Version: n.Status.NodeInfo.KubeletVersion,
-		Kernel:  n.Status.NodeInfo.KernelVersion,
-		Runtime: n.Status.NodeInfo.ContainerRuntimeVersion,
-		CPU:     cpu,
-		Memory:  mem,
-		Pods:    pods,
-		Age:     time.Since(n.CreationTimestamp.Time),
+		Name:       n.Name,
+		Status:     nodeStatus(n),
+		Roles:      nodeRoles(n),
+		Version:    n.Status.NodeInfo.KubeletVersion,
+		Kernel:     n.Status.NodeInfo.KernelVersion,
+		Runtime:    n.Status.NodeInfo.ContainerRuntimeVersion,
+		CPU:        cpu,
+		Memory:     mem,
+		Pods:       pods,
+		Taints:     taints,
+		Conditions: nodeConds,
+		Age:        time.Since(n.CreationTimestamp.Time),
 	}
 }
 
@@ -76,11 +81,8 @@ func nodeStatus(n corev1.Node) string {
 func nodeRoles(n corev1.Node) string {
 	roles := make([]string, 0)
 	for label := range n.Labels {
-		if strings.HasPrefix(label, rolePrefix) {
-			role := strings.TrimPrefix(label, rolePrefix)
-			if role != "" {
-				roles = append(roles, role)
-			}
+		if role, ok := strings.CutPrefix(label, rolePrefix); ok && role != "" {
+			roles = append(roles, role)
 		}
 	}
 	if len(roles) == 0 {
@@ -88,4 +90,46 @@ func nodeRoles(n corev1.Node) string {
 	}
 	sort.Strings(roles)
 	return strings.Join(roles, ",")
+}
+
+// formatTaints renders node taints as "key:Effect" or "key=value:Effect" pairs
+// joined by ",". Returns "<none>" when the node has no taints.
+func formatTaints(taints []corev1.Taint) string {
+	if len(taints) == 0 {
+		return "<none>"
+	}
+	parts := make([]string, 0, len(taints))
+	for _, t := range taints {
+		if t.Value != "" {
+			parts = append(parts, fmt.Sprintf("%s=%s:%s", t.Key, t.Value, t.Effect))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s:%s", t.Key, t.Effect))
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+// formatNodeConditions returns a comma-joined list of pressure conditions that
+// are currently True (active). Returns "<none>" when the node is healthy.
+// Ready is excluded — it is already captured in NodeItem.Status.
+func formatNodeConditions(conditions []corev1.NodeCondition) string {
+	pressure := []corev1.NodeConditionType{
+		corev1.NodeMemoryPressure,
+		corev1.NodeDiskPressure,
+		corev1.NodePIDPressure,
+		corev1.NodeNetworkUnavailable,
+	}
+	active := make([]string, 0, len(pressure))
+	for _, pt := range pressure {
+		for _, cond := range conditions {
+			if cond.Type == pt && cond.Status == corev1.ConditionTrue {
+				active = append(active, string(cond.Type))
+				break
+			}
+		}
+	}
+	if len(active) == 0 {
+		return "<none>"
+	}
+	return strings.Join(active, ",")
 }

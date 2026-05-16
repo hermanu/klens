@@ -6,6 +6,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
@@ -93,5 +94,140 @@ func TestNodeSvc_ListNodes_NoRoleLabel(t *testing.T) {
 	}
 	if items[0].Roles != "<none>" {
 		t.Errorf("want Roles=<none>, got %s", items[0].Roles)
+	}
+}
+
+func TestNodeSvc_ListNodes_ShowsAllocatableNotCapacity(t *testing.T) {
+	// Schedulers and klens should show allocatable (what pods can use), not
+	// capacity (raw hardware). On EKS/GKE the gap is 10-30%.
+	fakeClient := fake.NewSimpleClientset(&corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "eks-node"},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("3500m"),
+				corev1.ResourceMemory: resource.MustParse("14Gi"),
+				corev1.ResourcePods:   resource.MustParse("110"),
+			},
+			Capacity: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4000m"),
+				corev1.ResourceMemory: resource.MustParse("16Gi"),
+				corev1.ResourcePods:   resource.MustParse("110"),
+			},
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+			},
+		},
+	})
+
+	svc := resources.NewNodeSvc(fakeClient)
+	items, err := svc.ListNodes(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	n := items[0]
+	if n.CPU != "3500m" {
+		t.Errorf("want CPU=3500m (allocatable), got %s", n.CPU)
+	}
+	if n.Memory != "14Gi" {
+		t.Errorf("want Memory=14Gi (allocatable), got %s", n.Memory)
+	}
+	if n.Pods != "110" {
+		t.Errorf("want Pods=110, got %s", n.Pods)
+	}
+}
+
+func TestNodeSvc_ListNodes_Taints(t *testing.T) {
+	fakeClient := fake.NewSimpleClientset(&corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "tainted-node"},
+		Spec: corev1.NodeSpec{
+			Taints: []corev1.Taint{
+				{Key: "node-role.kubernetes.io/master", Effect: corev1.TaintEffectNoSchedule},
+				{Key: "dedicated", Value: "gpu", Effect: corev1.TaintEffectNoExecute},
+			},
+		},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+			},
+		},
+	})
+
+	svc := resources.NewNodeSvc(fakeClient)
+	items, err := svc.ListNodes(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "node-role.kubernetes.io/master:NoSchedule,dedicated=gpu:NoExecute"
+	if items[0].Taints != want {
+		t.Errorf("want Taints=%q, got %q", want, items[0].Taints)
+	}
+}
+
+func TestNodeSvc_ListNodes_NoTaints(t *testing.T) {
+	fakeClient := fake.NewSimpleClientset(&corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "clean-node"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+			},
+		},
+	})
+
+	svc := resources.NewNodeSvc(fakeClient)
+	items, err := svc.ListNodes(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if items[0].Taints != "<none>" {
+		t.Errorf("want Taints=<none>, got %s", items[0].Taints)
+	}
+}
+
+func TestNodeSvc_ListNodes_PressureConditions(t *testing.T) {
+	// Node is Ready but simultaneously under memory and disk pressure —
+	// this is invisible in the current view but critical for scheduling decisions.
+	fakeClient := fake.NewSimpleClientset(&corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "pressured-node"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+				{Type: corev1.NodeMemoryPressure, Status: corev1.ConditionTrue},
+				{Type: corev1.NodeDiskPressure, Status: corev1.ConditionTrue},
+				{Type: corev1.NodePIDPressure, Status: corev1.ConditionFalse},
+			},
+		},
+	})
+
+	svc := resources.NewNodeSvc(fakeClient)
+	items, err := svc.ListNodes(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "MemoryPressure,DiskPressure"
+	if items[0].Conditions != want {
+		t.Errorf("want Conditions=%q, got %q", want, items[0].Conditions)
+	}
+}
+
+func TestNodeSvc_ListNodes_NoPressure(t *testing.T) {
+	fakeClient := fake.NewSimpleClientset(&corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "healthy-node"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+				{Type: corev1.NodeMemoryPressure, Status: corev1.ConditionFalse},
+				{Type: corev1.NodeDiskPressure, Status: corev1.ConditionFalse},
+				{Type: corev1.NodePIDPressure, Status: corev1.ConditionFalse},
+			},
+		},
+	})
+
+	svc := resources.NewNodeSvc(fakeClient)
+	items, err := svc.ListNodes(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if items[0].Conditions != "<none>" {
+		t.Errorf("want Conditions=<none>, got %s", items[0].Conditions)
 	}
 }

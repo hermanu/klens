@@ -86,3 +86,39 @@ func TestPodSvc_ListPodsForSelector(t *testing.T) {
 		t.Errorf("want api-1 and api-2, got %v", got)
 	}
 }
+
+func TestPodSvc_ListPods_InitCrashLoopBackOff(t *testing.T) {
+	fakeClient := fake.NewSimpleClientset(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "init-crash",
+			Namespace: "default",
+		},
+		Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{{Name: "init-c"}},
+			Containers:     []corev1.Container{{Name: "main"}},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodPending,
+			InitContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name:  "init-c",
+					Ready: false,
+					State: corev1.ContainerState{
+						Waiting: &corev1.ContainerStateWaiting{
+							Reason: "CrashLoopBackOff",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	svc := resources.NewPodSvc(fakeClient)
+	items, err := svc.ListPods(context.Background(), "default")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if items[0].Status != "Init:CrashLoopBackOff" {
+		t.Errorf("want Init:CrashLoopBackOff, got %s", items[0].Status)
+	}
+}
