@@ -1048,7 +1048,11 @@ func (m Model) View() string {
 	// 2. Mid row: table | details
 	var midPanels []string
 	tableBody := v.Table(tableW-2, midH-2)
-	tableTitle := tablePanelTitle(v.Title(), visible, total, m.pods.Scope())
+	filter := ""
+	if f, ok := v.(views.Filterable); ok {
+		filter = f.Filter()
+	}
+	tableTitle := tablePanelTitle(v.Title(), m.namespace, filter, visible, total, m.pods.Scope())
 	tableFoot := tableFootForView(v, visible, total, tableW-4)
 	tablePanel := components.Panel(components.PanelConfig{
 		Width:  tableW,
@@ -1119,27 +1123,61 @@ func (m Model) navItems() []layout.NavItem {
 	}
 }
 
-// tablePanelTitle renders the table panel's notched title, including the
-// drill scope chip when set on the pods view. Total == 0 suppresses the
-// count chip entirely (used by logs/describe sub-views where 'lines' or
-// 'fields' isn't a meaningful count to anchor on).
-func tablePanelTitle(resource string, visible, total int, scope string) string {
+// tablePanelTitle renders the table panel's notched title with a k9s-style
+// breadcrumb:
+//
+//	PODS · ns:default · /foo · scope: deployment/api [4/54]
+//
+// Breadcrumb segments are joined with ` · ` separators in muted styling.
+// Sub-views (logs, describe, generic_describe) report total=0 and no scope —
+// they fall through to just the uppercased resource name, since the
+// breadcrumb belongs to top-level list views.
+//
+// Segments, in order:
+//  1. resource    (uppercased, accent)                  — always present
+//  2. ns:<value>  (empty namespace renders "ns:all")    — list views only
+//  3. /<filter>                                         — only when filter is non-empty
+//  4. scope: <s>  (drill-down, currently pods view)     — only when scope is non-empty
+//  5. [N] or [V/N]                                      — count chip; suppressed when total == 0
+func tablePanelTitle(resource, namespace, filter string, visible, total int, scope string) string {
 	title := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render(strings.ToUpper(resource))
+	// Sub-views report total=0 and have no drill scope — keep just the resource title.
 	if total == 0 && scope == "" {
 		return title
 	}
-	count := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(fmt.Sprintf(" [%d]", total))
-	if visible != total {
-		count = lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(
-			fmt.Sprintf(" [%d/%d]", visible, total),
-		)
+
+	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted)
+	muted2 := lipgloss.NewStyle().Foreground(theme.ColorMuted2)
+	fg := lipgloss.NewStyle().Foreground(theme.ColorFG)
+	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent)
+	sep := muted2.Render(" · ")
+
+	parts := []string{title}
+
+	nsValue := namespace
+	if nsValue == "" {
+		nsValue = "all"
 	}
+	parts = append(parts, muted.Render("ns:")+fg.Render(nsValue))
+
+	if filter != "" {
+		parts = append(parts, muted2.Render("/")+accent.Render(filter))
+	}
+
 	if scope != "" {
-		count = lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(
-			fmt.Sprintf(" [%d/%d · scope: %s]", visible, total, scope),
-		)
+		parts = append(parts, muted.Render("scope: ")+fg.Render(scope))
 	}
-	return title + count
+
+	breadcrumb := strings.Join(parts, sep)
+
+	if total > 0 {
+		countStr := fmt.Sprintf(" [%d]", total)
+		if visible != total {
+			countStr = fmt.Sprintf(" [%d/%d]", visible, total)
+		}
+		return breadcrumb + muted.Render(countStr)
+	}
+	return breadcrumb
 }
 
 // tableFootForView returns the table panel's bottom-right foot — the

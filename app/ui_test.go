@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"bytes"
+	"regexp"
 	"testing"
 	"time"
 
@@ -9,6 +10,14 @@ import (
 	"github.com/charmbracelet/x/exp/teatest"
 	"github.com/hermanu/klens/app"
 )
+
+// uiAnsiRe matches CSI escape sequences so waitForOutput can substring-match
+// against the visible glyph stream. The textinput cursor renders as a reverse-
+// video escape inside the placeholder (e.g. `\x1b[7mr\x1b[0m\x1b[38;5;240mesource…`),
+// which fragments substrings like "resource or command" — stripping escapes
+// before the substring check makes assertions stable against cursor blink
+// timing and any future style refactors.
+var uiAnsiRe = regexp.MustCompile(`\x1b\[[\d;?]*[a-zA-Z]`)
 
 // teatest drives the model through a real tea.Program so View() output
 // reflects the same composition the user sees, with the rendered focus frame
@@ -34,13 +43,15 @@ func quitProgram(tm *teatest.TestModel) {
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 }
 
-// waitForOutput polls the program's output stream until `match` returns true
-// or the deadline passes. teatest.WaitFor itself logs a useful failure with
-// the captured output if the condition never holds.
+// waitForOutput polls the program's output stream until the visible (ANSI-
+// stripped) text contains `want`, or the deadline passes. teatest.WaitFor
+// itself logs a useful failure with the captured output if the condition
+// never holds.
 func waitForOutput(t *testing.T, tm *teatest.TestModel, want string) {
 	t.Helper()
+	wantB := []byte(want)
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
-		return bytes.Contains(b, []byte(want))
+		return bytes.Contains(uiAnsiRe.ReplaceAll(b, nil), wantB)
 	}, teatest.WithDuration(uiTestTimeout))
 }
 
