@@ -94,4 +94,18 @@ type TopBarConfig struct {
 	// row 1 of the dashboard. Same value the caller passes to TopBarFoot, so
 	// the mark blinks in lockstep with the watch dot.
 	PulseOn bool
+	// PhaseCounts populates the top bar's row 3 with pod phase totals.
+	// Set only on the pods view (via views.PhaseCounter); nil on every other
+	// view → row 3 renders empty so the body height stays at 3 rows.
+	PhaseCounts *PhaseCounts
+}
+
+// PhaseCounts holds the pod phase aggregation rendered in the top bar's row 3
+// on the pods view: Running 23 · Pending 1 · Error 0 · Total 54. Reflects the
+// unfiltered cluster reality so the counts don't shift as the user filters.
+type PhaseCounts struct {
+	Running int
+	Pending int
+	Errored int
+	Total   int
 }

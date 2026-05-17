@@ -1036,6 +1036,10 @@ func (m Model) View() string {
 		Live:       m.client != nil,
 		PulseOn:    pulseOn,
 	}
+	if pc, ok := v.(views.PhaseCounter); ok {
+		r, p, e, t := pc.PhaseCounts()
+		topCfg.PhaseCounts = &layout.PhaseCounts{Running: r, Pending: p, Errored: e, Total: t}
+	}
 	topPanel := components.Panel(components.PanelConfig{
 		Width:  m.width,
 		Height: topBarH,

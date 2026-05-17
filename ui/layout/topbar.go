@@ -249,11 +249,49 @@ func shortLabel(label string) string {
 	return label
 }
 
-// phaseRow renders the dashboard's row 3: pod phase totals on the pods view
-// (Lever 4 wires PhaseCounts on TopBarConfig). For now it returns an empty
-// padded row so the body height stays at 3 regardless of which view is active.
-func phaseRow(inner int, _ TopBarConfig) string {
-	return strings.Repeat(" ", inner)
+// phaseRow renders the dashboard's row 3 — pod phase totals — when the
+// active view exposes PhaseCounts (only the pods view today). Other views
+// pass cfg.PhaseCounts == nil and the row renders empty so the body height
+// stays at 3 across view switches.
+//
+//	Running 23  ·  Pending 1  ·  Error 0  ·  Total 54
+//
+// Color rules:
+//   - Running: ColorOk always (Running is the happy state).
+//   - Pending: ColorWarn when > 0, ColorMuted otherwise.
+//   - Error:   ColorError when > 0, ColorMuted otherwise.
+//   - Total:   ColorFG always.
+func phaseRow(inner int, cfg TopBarConfig) string {
+	if cfg.PhaseCounts == nil {
+		return strings.Repeat(" ", inner)
+	}
+	pc := cfg.PhaseCounts
+	pendingColor := theme.ColorMuted
+	if pc.Pending > 0 {
+		pendingColor = theme.ColorWarn
+	}
+	errorColor := theme.ColorMuted
+	if pc.Errored > 0 {
+		errorColor = theme.ColorError
+	}
+
+	sep := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render("  ·  ")
+	parts := []string{
+		phaseChip("Running", pc.Running, theme.ColorOk),
+		phaseChip("Pending", pc.Pending, pendingColor),
+		phaseChip("Error", pc.Errored, errorColor),
+		phaseChip("Total", pc.Total, theme.ColorFG),
+	}
+	row := strings.Join(parts, sep)
+	return padRight(truncToWidth(row, inner), inner)
+}
+
+// phaseChip renders one "<label> <n>" chip — muted label, bold colored value.
+// Centralised so all four phase chips share the same layout and bold weight.
+func phaseChip(label string, n int, c lipgloss.Color) string {
+	l := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(label + " ")
+	v := lipgloss.NewStyle().Foreground(c).Bold(true).Render(fmt.Sprintf("%d", n))
+	return l + v
 }
 
 // joinedWidth returns the rendered display width of chips joined by a separator

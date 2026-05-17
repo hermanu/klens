@@ -227,6 +227,29 @@ func (v PodsView) CursorIndex() int {
 	return v.table.SelectedIndex() + 1
 }
 
+// PhaseCounts implements views.PhaseCounter — aggregates the unfiltered pod
+// list into the four buckets the top bar's row 3 renders. Pending bucket
+// includes the transitional reasons (ContainerCreating, PodInitializing)
+// because they're the friendly k9s rendering of `Pending` waiting on either
+// scheduling or container setup. Error bucket folds CrashLoopBackOff /
+// ImagePullBackOff / Evicted into a single signal — those all mean "needs
+// attention" regardless of the specific reason. Succeeded / Completed /
+// Terminating contribute only to Total.
+func (v PodsView) PhaseCounts() (running, pending, errored, total int) {
+	for _, p := range v.pods {
+		switch p.Status {
+		case "Running":
+			running++
+		case "Pending", "ContainerCreating", "PodInitializing":
+			pending++
+		case "Failed", "Error", "CrashLoopBackOff", "ImagePullBackOff", "Evicted", "OOMKilled":
+			errored++
+		}
+	}
+	total = len(v.pods)
+	return running, pending, errored, total
+}
+
 // Chips implements views.View. The namespace is shown prominently in the top
 // bar already, so we don't repeat it here — only user-set chips (text filter,
 // drill scope) go in the strip. The scope chip uses a non-`/` key so the

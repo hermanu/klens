@@ -163,6 +163,36 @@ func TestTopBar_Narrow_RendersMarkPrefix(t *testing.T) {
 	}
 }
 
+// TestTopBar_Wide_PhaseRowRendersWhenSet verifies row 3 emits the pod phase
+// counts ("Running N · Pending N · Error N · Total N") when PhaseCounts is
+// populated by the pods view via the PhaseCounter optional interface.
+func TestTopBar_Wide_PhaseRowRendersWhenSet(t *testing.T) {
+	out := layout.TopBar(120, layout.TopBarConfig{
+		Context: "prod",
+		PhaseCounts: &layout.PhaseCounts{
+			Running: 23, Pending: 1, Errored: 0, Total: 54,
+		},
+	})
+	plain := stripANSI(out)
+	for _, want := range []string{"Running 23", "Pending 1", "Error 0", "Total 54"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("phase row missing %q\n--- output ---\n%s", want, plain)
+		}
+	}
+}
+
+// TestTopBar_Wide_PhaseRowEmptyWhenNil verifies non-pod views (PhaseCounts == nil)
+// render row 3 empty so the body height stays at 3 across view switches.
+func TestTopBar_Wide_PhaseRowEmptyWhenNil(t *testing.T) {
+	out := layout.TopBar(120, layout.TopBarConfig{Context: "prod"})
+	plain := stripANSI(out)
+	for _, unwanted := range []string{"Running ", "Pending ", "Error ", "Total "} {
+		if strings.Contains(plain, unwanted) {
+			t.Errorf("non-pod view should not render phase row, found %q\n--- output ---\n%s", unwanted, plain)
+		}
+	}
+}
+
 // TestTopBar_LongARNDoesNotOverflowWidth verifies long ARN-style context
 // names get trimmed/dropped rather than overflowing the body width.
 func TestTopBar_LongARNDoesNotOverflowWidth(t *testing.T) {
