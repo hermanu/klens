@@ -98,3 +98,28 @@ func TestTablePanelTitle_ListViewRendersBreadcrumb(t *testing.T) {
 		})
 	}
 }
+
+func TestCmdPanelTitle(t *testing.T) {
+	cases := []struct {
+		name          string
+		commandMode   bool
+		filterFocused bool
+		want          string
+	}{
+		{name: "default → NAV", want: "NAV"},
+		{name: "filter focused → FILTER", filterFocused: true, want: "FILTER"},
+		{name: "command mode → :EX", commandMode: true, want: ":EX"},
+		// commandMode takes precedence over filterFocused — entering `:` from
+		// a focused filter doesn't keep the FILTER label; we're now in ex-mode.
+		{name: "commandMode wins over filterFocused", commandMode: true, filterFocused: true, want: ":EX"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := Model{commandMode: tc.commandMode, filterFocused: tc.filterFocused}
+			got := plainTitle(cmdPanelTitle(m))
+			if got != tc.want {
+				t.Errorf("\nwant: %q\ngot:  %q", tc.want, got)
+			}
+		})
+	}
+}

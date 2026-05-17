@@ -1033,7 +1033,6 @@ func (m Model) View() string {
 		CPUPercent: cm.CPUPercent,
 		NavItems:   navItems,
 		Namespace:  fallback(m.namespace, "all"),
-		Resource:   v.Title(),
 		Live:       m.client != nil,
 		PulseOn:    pulseOn,
 	}
@@ -1084,7 +1083,7 @@ func (m Model) View() string {
 	cmdPanel := components.Panel(components.PanelConfig{
 		Width:  m.width,
 		Height: cmdBarRows,
-		Title:  lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render("COMMAND"),
+		Title:  cmdPanelTitle(m),
 		Active: m.commandMode || m.filterFocused,
 		Body:   cmdBody,
 	})
@@ -1178,6 +1177,29 @@ func tablePanelTitle(resource, namespace, filter string, visible, total int, sco
 		return breadcrumb + muted.Render(countStr)
 	}
 	return breadcrumb
+}
+
+// cmdPanelTitle returns the COMMAND panel's notched title — repurposed from
+// a static "COMMAND" label to an input-mode indicator since the prompt body
+// (`›  /  type to filter…`) already self-documents:
+//
+//	NAV    — default navigation; muted
+//	FILTER — `/` input focused (filterFocused == true); accent + bold
+//	:EX    — ex-mode entered via `:` (commandMode == true); accent + bold
+//
+// The palette/help overlays paint on top of the frame so they hide the panel
+// behind them — no special label needed for those modes.
+func cmdPanelTitle(m Model) string {
+	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
+	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted).Bold(true)
+	switch {
+	case m.commandMode:
+		return accent.Render(":EX")
+	case m.filterFocused:
+		return accent.Render("FILTER")
+	default:
+		return muted.Render("NAV")
+	}
 }
 
 // tableFootForView returns the table panel's bottom-right foot — the

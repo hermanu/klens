@@ -89,27 +89,9 @@ type TopBarConfig struct {
 	// Nil/empty → strip is omitted.
 	NavItems  []NavItem
 	Namespace string // shown in vitals row, e.g. "ns default"
-	Resource  string // shown in the breadcrumb (Lever 2), e.g. "pods"
 	Live      bool   // ● live indicator
 	// PulseOn drives the animated ◉/◎ brand mark in both the panel title and
 	// row 1 of the dashboard. Same value the caller passes to TopBarFoot, so
 	// the mark blinks in lockstep with the watch dot.
 	PulseOn bool
-	// VisibleCount/TotalCount are the canonical filtered/total counts that
-	// row 2 anchors at the same column on every render. When equal, the bar
-	// shows "· N"; when different, "· V of N" with V in accent.
-	VisibleCount int
-	TotalCount   int
-	// Totals is the legacy aggregate counter set. Row 2 no longer renders it
-	// (counters were redundant with VisibleCount/TotalCount), but other call
-	// sites may still consult it — leave the field in place.
-	Totals Totals
-}
-
-// Totals are the right-aligned counter chips: pods, deployments, services, events.
-type Totals struct {
-	Pods        int
-	Deployments int
-	Services    int
-	Events      int
 }
