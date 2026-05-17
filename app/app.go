@@ -1032,7 +1032,6 @@ func (m Model) View() string {
 		CPUSamples: cm.CPUSamples,
 		CPUPercent: cm.CPUPercent,
 		NavItems:   navItems,
-		Namespace:  fallback(m.namespace, "all"),
 	}
 	if pc, ok := v.(views.PhaseCounter); ok {
 		r, p, e, t := pc.PhaseCounts()
@@ -1181,14 +1180,16 @@ func tablePanelTitle(resource, namespace, filter string, visible, total int, sco
 	return breadcrumb
 }
 
-// cmdPanelTitle returns the COMMAND panel's notched title — repurposed from
+// cmdPanelTitle returns the bottom panel's notched title — repurposed from
 // a static "COMMAND" label to an input-mode indicator since the prompt body
-// (`›  /  type to filter…`) already self-documents:
+// already self-documents:
 //
 //	NAV    — default navigation; muted
-//	FILTER — `/` input focused (filterFocused == true); accent + bold
+//	FILTER — `/` input focused OR a filter value is set; accent + bold
 //	:EX    — ex-mode entered via `:` (commandMode == true); accent + bold
 //
+// FILTER also fires when a filter value is set but the input is blurred —
+// otherwise the title falsely reads NAV while the table is silently filtered.
 // The palette/help overlays paint on top of the frame so they hide the panel
 // behind them — no special label needed for those modes.
 func cmdPanelTitle(m Model) string {
@@ -1197,11 +1198,21 @@ func cmdPanelTitle(m Model) string {
 	switch {
 	case m.commandMode:
 		return accent.Render(":EX")
-	case m.filterFocused:
+	case m.filterFocused, hasActiveFilter(m):
 		return accent.Render("FILTER")
 	default:
 		return muted.Render("NAV")
 	}
+}
+
+// hasActiveFilter returns true when the current view exposes a non-empty
+// Filter() value. Used to flip the bottom panel title to FILTER even when the
+// input is blurred, so the user can see the filter is still on.
+func hasActiveFilter(m Model) bool {
+	if f, ok := m.currentView().(views.Filterable); ok {
+		return f.Filter() != ""
+	}
+	return false
 }
 
 // tableFootForView returns the table panel's bottom-right foot — the
@@ -1255,7 +1266,35 @@ func (m Model) renderCmdBody(v views.View, innerW int) string {
 	}
 	hints := append([]layout.KeyHint{}, v.KeyHints()...)
 	hints = append(hints, layout.KeyHint{Key: "?", Label: "help"})
-	return layout.CommandBar(innerW, m.commandBarInput(), hints)
+
+	// Filter is "active" when the input has focus OR carries a non-empty value
+	// (a value persists across view switches via Filterable, so a blurred input
+	// still represents a filtered table). Show the input row only in that case;
+	// otherwise the bottom bar is hints-only — no fake `› / type to filter…`
+	// prompt competing with the real key hints.
+	if m.filterFocused || hasActiveFilter(m) {
+		return layout.CommandBar(innerW, m.commandBarInput(), hints)
+	}
+	return renderHintsOnly(innerW, hints)
+}
+
+// renderHintsOnly returns a 2-row body showing only the key hints — the
+// bottom-bar layout in pure NAV mode. Hints sit on row 2 (closer to the
+// border, where the user's eye lands when scanning for keypress
+// affordances); row 1 stays blank for visual stability so the panel's
+// height never shifts between modes.
+func renderHintsOnly(width int, hints []layout.KeyHint) string {
+	chips := make([]string, 0, len(hints))
+	for _, h := range hints {
+		key := theme.KeyChip.Render(h.Key)
+		label := theme.Dim.Render(" " + h.Label)
+		chips = append(chips, key+label)
+	}
+	right := strings.Join(chips, "  ")
+	pad := max(width-lipgloss.Width(right), 0)
+	hintsRow := strings.Repeat(" ", pad) + right
+	blank := strings.Repeat(" ", width)
+	return blank + "\n" + hintsRow
 }
 
 // overlayCentered paints `modal` over `frame` centered in (width, height).

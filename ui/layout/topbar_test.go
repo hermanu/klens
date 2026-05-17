@@ -64,7 +64,6 @@ func TestTopBar_Wide_RendersIdentityAndVitals(t *testing.T) {
 		KlensVer:   "0.3.0",
 		BuildID:    "a1b2c3d",
 		Uptime:     "62d 14h",
-		Namespace:  "default",
 		NodesReady: 9, NodesTotal: 9,
 	})
 	plain := stripANSI(out)
@@ -74,7 +73,6 @@ func TestTopBar_Wide_RendersIdentityAndVitals(t *testing.T) {
 		"v1.30.4",        // k8s version
 		"62d 14h",        // uptime
 		"nodes 9/9",      // vitals
-		"ns default",     // namespace chip on row 2
 	} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("body missing %q\n--- output ---\n%s", want, plain)
@@ -84,6 +82,11 @@ func TestTopBar_Wide_RendersIdentityAndVitals(t *testing.T) {
 	// renders K·L·E·N·S; duplicating it here was visually noisy.
 	if strings.Contains(plain, "KLENS") {
 		t.Errorf("row 1 should not inline the KLENS wordmark anymore, got:\n%s", plain)
+	}
+	// Namespace must NOT appear on the top bar — it lives on the table title's
+	// breadcrumb (`ns:default`); two surfaces was the duplication users flagged.
+	if strings.Contains(plain, "ns default") || strings.Contains(plain, "ns:") {
+		t.Errorf("top bar should not carry the ns chip anymore, got:\n%s", plain)
 	}
 }
 

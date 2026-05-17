@@ -153,11 +153,10 @@ func vitalsRow(inner int, cfg TopBarConfig) string {
 		left = append(left, s)
 	}
 
-	if ns := optionalStr(cfg.Namespace); ns != "" {
-		s := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render("ns ") +
-			lipgloss.NewStyle().Foreground(theme.ColorFG).Bold(true).Render(ns)
-		left = append(left, s)
-	}
+	// Namespace lives on the table panel's breadcrumb (`ns:<value>`) — repeating
+	// it here is the duplication the user called out. The breadcrumb stays as
+	// the canonical "where am I" indicator; the top bar focuses on cluster-wide
+	// vitals (nodes / cpu).
 
 	leftStr := strings.Join(left, sep)
 	leftW := lipgloss.Width(leftStr)

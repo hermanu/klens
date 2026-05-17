@@ -87,8 +87,7 @@ type TopBarConfig struct {
 	// NavItems is the 8-entry resource list rendered as a horizontal strip in
 	// the dashboard's row 2. The active entry carries the ▌ accent.
 	// Nil/empty → strip is omitted.
-	NavItems  []NavItem
-	Namespace string // shown in vitals row, e.g. "ns default"
+	NavItems []NavItem
 	// PhaseCounts populates the top bar's row 3 with pod phase totals.
 	// Set only on the pods view (via views.PhaseCounter); nil on every other
 	// view → row 3 renders empty so the body height stays at 3 rows.

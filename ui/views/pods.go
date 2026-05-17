@@ -23,22 +23,36 @@ const sparkLen = 24
 // re-render. New lines push old ones out the front.
 const logTailLen = 50
 
-var podCols = []components.Column{
-	{Header: "NAMESPACE", Width: 14},
+// podColumns returns the table column set for the pods list. When the view
+// is scoped to a specific namespace, the NAMESPACE column is suppressed —
+// every row would otherwise repeat the same word (the breadcrumb on the
+// table panel title already shows which namespace we're scoped to).
+//
+// showNamespace == true when the user is in "all namespaces" mode and the
+// per-row namespace is genuinely useful.
+func podColumns(showNamespace bool) []components.Column {
+	cols := make([]components.Column, 0, 11)
+	if showNamespace {
+		cols = append(cols, components.Column{Header: "NAMESPACE", Width: 14})
+	}
 	// NAME is Flex so any leftover horizontal width on wide terminals goes to
 	// it — pod names are routinely long enough to truncate at 36, and there's
 	// no point leaving a blank band on the right of the table while names get
 	// chopped.
-	{Header: colName, Width: 36, Flex: true},
-	{Header: "READY", Width: 6, Align: components.AlignRight},
-	{Header: "STATUS", Width: 18},
-	{Header: "RST", Width: 4, Align: components.AlignRight},
-	{Header: "CPU·m", Width: 7, Align: components.AlignRight},
-	{Header: "MEM·MB", Width: 7, Align: components.AlignRight},
-	{Header: "TREND", Width: 10},
-	{Header: "IP", Width: 14},
-	{Header: "NODE", Width: 18},
-	{Header: colAge, Width: 6, Align: components.AlignRight},
+	cols = append(
+		cols,
+		components.Column{Header: colName, Width: 36, Flex: true},
+		components.Column{Header: "READY", Width: 6, Align: components.AlignRight},
+		components.Column{Header: "STATUS", Width: 18},
+		components.Column{Header: "RST", Width: 4, Align: components.AlignRight},
+		components.Column{Header: "CPU·m", Width: 7, Align: components.AlignRight},
+		components.Column{Header: "MEM·MB", Width: 7, Align: components.AlignRight},
+		components.Column{Header: "TREND", Width: 10},
+		components.Column{Header: "IP", Width: 14},
+		components.Column{Header: "NODE", Width: 18},
+		components.Column{Header: colAge, Width: 6, Align: components.AlignRight},
+	)
+	return cols
 }
 
 // podSeries is the per-pod ring buffer of CPU + memory samples used for the
@@ -72,7 +86,7 @@ func NewPodsView(svc port.PodService, namespace string) PodsView {
 	return PodsView{
 		svc:       svc,
 		namespace: namespace,
-		table:     components.NewTable(podCols, nil),
+		table:     components.NewTable(podColumns(namespace == ""), nil),
 		samples:   make(map[string]podSeries),
 	}
 }
@@ -130,11 +144,19 @@ func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
 		return v, nil
 
 	case NamespaceChangedMsg:
+		wasAll := v.namespace == ""
 		v.namespace = msg.Namespace
+		nowAll := v.namespace == ""
 		// Drop stale data — the follow-up PodsUpdatedMsg refetches.
 		v.pods = nil
 		v.logTail = nil
-		v.table = v.table.SetRows(nil)
+		// When the "all namespaces" state flips, rebuild the table so the
+		// NAMESPACE column is added/removed accordingly.
+		if wasAll != nowAll {
+			v.table = components.NewTable(podColumns(nowAll), nil)
+		} else {
+			v.table = v.table.SetRows(nil)
+		}
 		return v, nil
 
 	case tea.KeyMsg:
@@ -345,10 +367,13 @@ func (v PodsView) Details(width, height int) string {
 	// (out of scope for this iteration); falls back to one row that reads
 	// honestly with what we already know.
 	containerName := firstSegment(pod.Name)
+	// Image is intentionally left empty — DefaultDetails' CONTAINERS section
+	// omits the image row when Image == "", instead of rendering a useless
+	// "image —" placeholder. A future lazy DescribePod fetch could populate it
+	// for the focused pod.
 	containers := []layout.ContainerSummary{
 		{
 			Name:     containerName,
-			Image:    "—", // unknown without a DescribePod fetch
 			Status:   pod.Status,
 			Restarts: pod.Restarts,
 		},
@@ -399,6 +424,7 @@ func (v PodsView) visiblePods() []resources.PodItem {
 
 func (v PodsView) rows() []components.Row {
 	pods := v.visiblePods()
+	showNamespace := v.namespace == ""
 	rows := make([]components.Row, len(pods))
 	for i, p := range pods {
 		key := p.Namespace + "/" + p.Name
@@ -412,8 +438,12 @@ func (v PodsView) rows() []components.Row {
 			memCell = fmt.Sprintf("%d", int(v))
 		}
 		spark := components.Sparkline(scaleSeries(s.cpu, scaleCPU), 10, statusDotColor(p.Status))
-		rows[i] = components.Row{
-			components.NSChip(p.Namespace),
+		row := components.Row{}
+		if showNamespace {
+			row = append(row, components.NSChip(p.Namespace))
+		}
+		row = append(
+			row,
 			highlightMatch(p.Name, v.filter),
 			p.Ready,
 			components.StatusPill(p.Status),
@@ -424,7 +454,8 @@ func (v PodsView) rows() []components.Row {
 			highlightMatch(fallbackOr(p.IP), v.filter),
 			highlightMatch(fallbackOr(p.Node), v.filter),
 			fmtAge(p.Age),
-		}
+		)
+		rows[i] = row
 	}
 	return rows
 }
