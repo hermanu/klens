@@ -41,24 +41,27 @@ func markGlyphPair(pulseOn, live bool) (string, lipgloss.Color) {
 
 // TopBarTitle returns the styled title for the top-bar Panel:
 //
-//	◉  K·L·E·N·S  ◣ v0.3.0 ◢  build a1b2c3d
+//	◉  K·L·E·N·S · vdev · build a1b2c3d
 //
 // The mark glyph alternates ◉/◎ on pulseOn so the brand pulses in lockstep
 // with the watch dot in the foot. The middle-dot-spaced wordmark gives the
-// brand gravity on the chrome without consuming body rows. Caller hands the
-// return value to PanelConfig.Title; Panel overlays it onto the top border
-// and clamps to the available border width if the title would overflow.
+// brand gravity on the chrome without consuming body rows; middle-dot
+// separators (instead of decorative ◣ ◢ brackets which render poorly in many
+// terminal fonts) carry the eye through version and build segments.
+//
+// Caller hands the return value to PanelConfig.Title; Panel overlays it onto
+// the top border and clamps to the available border width if the title would
+// overflow.
 func TopBarTitle(cfg TopBarConfig, pulseOn bool) string {
 	mark, markColor := markGlyphPair(pulseOn, cfg.Live)
 	markS := lipgloss.NewStyle().Foreground(markColor).Render(mark)
 
 	word := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render("K·L·E·N·S")
-	lBracket := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render("◣")
-	rBracket := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render("◢")
+	sep := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render(" · ")
 	ver := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render("v" + safeStr(cfg.KlensVer, "dev"))
 	build := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render("build " + safeStr(cfg.BuildID, "dev"))
 
-	return markS + "  " + word + "  " + lBracket + " " + ver + " " + rBracket + "  " + build
+	return markS + "  " + word + sep + ver + sep + build
 }
 
 // TopBarFoot returns the styled foot for the top-bar Panel: the pulse dot
@@ -102,18 +105,23 @@ func renderTopBarWide(inner int, cfg TopBarConfig) string {
 	return strings.Join(rows, "\n")
 }
 
-// identityRow renders the dashboard's row 1: animated mark + KLENS wordmark
-// followed by space-separated identity chips (ctx · region · k8s · uptime).
-// Chips drop from the right (lowest-priority first) when the row would overflow.
+// identityRow renders the dashboard's row 1: animated mark glyph followed by
+// space-separated identity chips (ctx · region · k8s · uptime). The brand
+// wordmark already lives in the panel title — repeating "KLENS" inline here
+// would duplicate it across two adjacent rows, so the body keeps just the
+// mark as a single-cell pulse indicator.
+//
+// Chips drop from the right (lowest-priority first) when the row would
+// overflow. The mark prefix is always preserved as the row's anchor.
 func identityRow(inner int, cfg TopBarConfig) string {
 	mark, markColor := markGlyphPair(cfg.PulseOn, cfg.Live)
-	markChunk := lipgloss.NewStyle().Foreground(markColor).Render(mark) + " " +
-		lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render("KLENS")
+	prefix := lipgloss.NewStyle().Foreground(markColor).Render(mark) + "  "
+	prefixW := lipgloss.Width(prefix)
 
 	sep := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render("  ·  ")
 	sepW := lipgloss.Width(sep)
 
-	chips := []string{markChunk}
+	var chips []string
 	addChip := func(label, value string) {
 		if value == "" {
 			return
@@ -127,11 +135,13 @@ func identityRow(inner int, cfg TopBarConfig) string {
 	addChip("k8s", optionalStr(cfg.K8sVersion))
 	addChip("uptime", optionalStr(cfg.Uptime))
 
-	// Drop chips from the right until the row fits. The mark+wordmark never drops.
-	for len(chips) > 1 && joinedWidth(chips, sepW) > inner {
+	// Drop chips from the right until the row fits within the budget that's
+	// left after the mark prefix.
+	available := max(inner-prefixW, 0)
+	for len(chips) > 0 && joinedWidth(chips, sepW) > available {
 		chips = chips[:len(chips)-1]
 	}
-	return padRight(strings.Join(chips, sep), inner)
+	return padRight(prefix+strings.Join(chips, sep), inner)
 }
 
 // vitalsRow renders the dashboard's row 2: nodes ratio + cpu sparkline +

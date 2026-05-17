@@ -70,7 +70,10 @@ func newTestUI(t *testing.T) *teatest.TestModel {
 // so its presence is stable proof the top panel rendered.
 func TestUI_DefaultFrame(t *testing.T) {
 	tm := newTestUI(t)
-	waitForOutput(t, tm, "KLENS")
+	// The panel title is `K·L·E·N·S` (middle-dot spaced) since the topbar
+	// redesign. waitForOutput strips ANSI before matching so this substring
+	// survives the foreground/bold/separator escapes the title emits.
+	waitForOutput(t, tm, "K·L·E·N·S")
 	quitProgram(tm)
 	tm.WaitFinished(t, teatest.WithFinalTimeout(uiTestTimeout))
 }

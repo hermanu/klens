@@ -75,7 +75,6 @@ func TestTopBar_Wide_RendersIdentityAndVitals(t *testing.T) {
 	})
 	plain := stripANSI(out)
 	for _, want := range []string{
-		"KLENS",          // inline mark + wordmark on row 1
 		"production-eks", // ctx
 		"us-east-1",      // region
 		"v1.30.4",        // k8s version
@@ -86,6 +85,11 @@ func TestTopBar_Wide_RendersIdentityAndVitals(t *testing.T) {
 		if !strings.Contains(plain, want) {
 			t.Errorf("body missing %q\n--- output ---\n%s", want, plain)
 		}
+	}
+	// Row 1 must NOT inline-repeat the brand wordmark — the panel title already
+	// renders K·L·E·N·S; duplicating it here was visually noisy.
+	if strings.Contains(plain, "KLENS") {
+		t.Errorf("row 1 should not inline the KLENS wordmark anymore, got:\n%s", plain)
 	}
 }
 
