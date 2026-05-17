@@ -16,10 +16,14 @@ Module path: `github.com/hermanu/klens`. Go **1.26.3** is the required toolchain
 The `justfile` is the canonical task runner. Common entries:
 
 - `just build` — `go build -o klens .`
-- `just run -- --namespace production` — run from source
+- `just install` — `go install .`
+- `just run *args` — `go run . <args>`
 - `just test` / `just test-race` / `just test-v`
+- `just vet` — `go vet ./...`
 - `just lint` — `golangci-lint run ./...`
 - `just check` — test + vet + lint (run before committing)
+- `just tidy` — `go mod tidy`
+- `just clean` — removes the `klens` binary
 - `just release-dry` — `goreleaser release --snapshot --clean`
 - `just release v0.2.0` — tag + push (CI publishes)
 
@@ -48,6 +52,21 @@ ui/views  ──depends on──▶  port  ◀──implements──  k8s/resour
 
 A regression check: `grep -rn "k8s.io/" ui/views/` must return nothing.
 
+### Port interfaces
+
+`port/port.go` defines 10 service interfaces and a `Services` struct that bundles them:
+
+- `PodService` — `ListPods`, `DeletePod`, `DescribePod`, `ListPodsForSelector`, `ListPodsOnNode`
+- `DeploymentService` — `ListDeployments`
+- `SvcService` — `ListServices` (named to avoid collision with the generic word "service" — don't rename)
+- `SecretService` — `ListSecrets`, `GetSecret`, `UpdateSecret`, `CreateSecret`, `DeleteSecret`
+- `ConfigMapService` — `ListConfigMaps`, `GetConfigMap`, `UpdateConfigMap`
+- `NamespaceService` — `ListNamespaces`
+- `NodeService` — `ListNodes`
+- `PVCService` — `ListPVCs`
+- `MetricsService` — `PodMetrics`
+- `LogService` — `StreamPodLogs`, `StreamPodLogsMulti`
+
 ### The bordered-panel shell
 
 `app/app.go::View()` composes three vertically-stacked panels (each wrapped in `components.Panel`):
@@ -61,13 +80,21 @@ CommandBar (4 rows)              ← › / type to filter…   (body row 1)
                                    <↵> describe  <l> logs  <s> shell  <e> edit  </> filter  <?> help
 ```
 
-Geometry constants live at the top of `app/app.go`: `topBarRowsWide` (8) drops to `topBarRowsNarrow` (3) below `topBarWideAt` (80 cols). The right Details pane drops below `minDetailsAt` (120 cols). The nav grid (3rd top-bar column) drops below `navGridAt` (110 cols) — set in `ui/layout/topbar.go`. Sub-views (logs, describe, generic_describe) take the full mid-row area. The `: palette` and `?` help overlays paint over the live frame via `ui/components/overlay.go` (`charmbracelet/x/ansi`-aware cell slicing) so the table stays visible behind them.
+Geometry constants live at the top of `app/app.go`:
+
+- `topBarRowsWide = 8` — drops to `topBarRowsNarrow = 3` below `layout.TopBarWideAt` (80 cols, defined in `ui/layout/topbar.go`)
+- `cmdBarRows = 4`
+- `detailsWidth = 44` — fixed width of the right-pane detail block
+- `minDetailsAt = 120` — right Details pane drops below this terminal width
+- `navGridAt = 110` — nav grid (3rd top-bar column) drops below this width (defined in `ui/layout/topbar.go`)
+
+Sub-views (logs, describe, generic_describe) take the full mid-row area. The `: palette` and `?` help overlays paint over the live frame via `ui/components/overlay.go` (`charmbracelet/x/ansi`-aware cell slicing) so the table stays visible behind them.
 
 **Panel hard-clamps body to `Width × Height`** (see `ui/components/panel.go`) — lipgloss's `.Width()`/`.Height()` pad short content but DO NOT truncate over-tall or over-wide content. Panel splits body lines and trims each to `Width-2` cells × `Height-2` rows before rendering so a misbehaving body renderer can never push the frame off the alt-screen viewport.
 
 ### View contract (`ui/views/view.go`)
 
-Every view implements:
+Every view implements the `View` interface:
 
 ```go
 type View interface {
@@ -78,13 +105,35 @@ type View interface {
     Title() string                 // becomes the table panel title (uppercased), e.g. PODS
     Count() (visible, total int)   // drives the [N] (or [V/T]) chip on the table panel title; return 0,0 to suppress
 }
+```
 
+Optional interfaces (implement as needed):
+
+```go
+// KeyMap powers the `?` help overlay (full keymap incl. `Soon` entries).
 type KeyMap interface {
-    KeyMap() []components.KeySpec  // optional; powers the `?` help overlay (full keymap incl. `Soon`)
+    KeyMap() []components.KeySpec
 }
 
+// Filterable exposes the per-view filter string. The shell syncs the
+// command-bar textinput from this when the user switches views, so each
+// view's filter persists independently across drill-downs.
+type Filterable interface {
+    Filter() string
+}
+
+// Capturing claims exclusive keystroke ownership. When CapturesKeys()
+// returns true the shell skips its own global shortcuts (`:`, `?`,
+// `ctrl+p`, `/`) and routes straight to the view — needed for modal
+// sub-states like the form's edit mode. ctrl+c is still handled globally.
+type Capturing interface {
+    CapturesKeys() bool
+}
+
+// Cursored exposes the 1-indexed focused-row position. Drives the
+// "15 / 54" foot on the table panel.
 type Cursored interface {
-    CursorIndex() int              // optional; 1-indexed row position. Drives the "15 / 54" foot on the table panel
+    CursorIndex() int
 }
 ```
 
@@ -96,7 +145,7 @@ The shell routes specialized sub-views via messages from the active list view:
 
 - `SwitchToDescribeMsg{Namespace, Pod}` — full-screen pod describe (containers, env, conditions, …).
 - `SwitchToLogsMsg{Namespace, Pods []string, Title string}` — full-screen logs view. `Pods` carries one entry for a single-pod tail and N entries when the source is an owner (deployment/service/node). `Title` is the chip caption (e.g. `deployment/foo`).
-- `SwitchToGenericDescribeMsg{Title, KVs}` — full-screen KV describe for non-pod resources.
+- `SwitchToGenericDescribeMsg{Title, KVs}` — full-screen KV describe for non-pod resources (PVCs, services, nodes, …).
 - `DrillToPodsMsg{Filter}` — Enter on a deployment/service/node filters pods by that owner.
 - `NamespaceSelectedMsg{Namespace}` — Enter on a namespace switches the scope.
 
@@ -104,7 +153,20 @@ The root model maintains a navigation history stack — drill-downs push, `esc` 
 
 ### Watcher → tea.Msg pipeline
 
-`k8s/watcher.go` wraps a `SharedInformerFactory` (30s resync). Each event is forwarded as a typed `tea.Msg` (`PodsUpdatedMsg{}`, `MetricsTickMsg{Samples}`, `LogLineMsg{Line}`, `PulseTickMsg{}`) via `program.Send`. Per-resource events are debounced with a 500ms `time.AfterFunc` so a busy informer doesn't spam the model. Multi-pod log streaming goes through `Watcher.StartPodLogTails(ns, []pods, sinceSeconds)` which fans out via `LogService.StreamPodLogsMulti`.
+`k8s/watcher.go` wraps a `SharedInformerFactory` (30s resync). Each event is forwarded as a typed `tea.Msg` via `program.Send`. Per-resource events are debounced with a 500ms `time.AfterFunc` so a busy informer doesn't spam the model.
+
+**Resource-change messages** (one per registered informer):
+- `PodsUpdatedMsg{}`, `DeploymentsUpdatedMsg{}`, `ServicesUpdatedMsg{}`
+- `SecretsUpdatedMsg{}`, `ConfigMapsUpdatedMsg{}`, `NamespacesUpdatedMsg{}`
+- `NodesUpdatedMsg{}`, `PVCsUpdatedMsg{}`
+- `EventsUpdatedMsg{}`, `CronJobsUpdatedMsg{}` — informers registered; no dedicated views yet
+
+**Ticker messages:**
+- `MetricsTickMsg{Samples}` — fires every 5 seconds with batched pod samples; views advance per-pod sparkline ring buffers
+- `PulseTickMsg{Phase bool}` — fires every 400ms; drives the pulsing watch dot and tailing indicator
+- `LogLineMsg{Line}` — one streamed log entry routed to the focused log view
+
+Multi-pod log streaming goes through `Watcher.StartPodLogTails(ns, []pods, sinceSeconds)` which fans out via `LogService.StreamPodLogsMulti`.
 
 To support a new resource the watcher must register its informer and emit a new `*UpdatedMsg`.
 
@@ -114,9 +176,45 @@ Views' `ListX` calls run off the Update goroutine via a `tea.Cmd` returning a `*
 
 ### Bubble Tea routing
 
-The root `app.Model` owns every view as a field and routes messages with a `viewKind` enum. Adding a new resource means adding to `viewKind`, the field set, the constructor, `currentView`, `reloadCmd`, `View`, and `paletteNameToView` — keep these in sync. Same applies to sub-views (`viewLogs`, `viewDescribe`, `viewGenericDescribe`).
+The root `app.Model` owns every view as a field and routes messages with a `viewKind` enum:
+
+```go
+const (
+    viewPods viewKind = iota
+    viewDeployments
+    viewServices
+    viewSecrets
+    viewConfigMaps
+    viewNamespaces
+    viewNodes
+    viewPVCs
+    viewLogs            // full-screen log tail; `l` on a pod
+    viewDescribe        // full-screen pod describe; Enter on a pod
+    viewGenericDescribe // full-screen KV describe for non-pod resources
+)
+```
+
+Adding a new resource means adding to `viewKind`, the field set, the constructor, `currentView`, `reloadCmd`, `View`, and `paletteNameToView` — keep these in sync. Same applies to sub-views (`viewLogs`, `viewDescribe`, `viewGenericDescribe`).
 
 `SetLogTailStarter` uses a `*func(...)` pointer slot so the watcher's start function survives the Bubble Tea program copy (the model is value-passed; the function pointer is a shared mutable cell).
+
+### Command palette
+
+The `:` palette and `ctrl+p` both use `ui/components/palette.go`. All 11 navigable resources have short mnemonic aliases:
+
+| Alias | Full name     |
+|-------|---------------|
+| `:po` | pods          |
+| `:dp` | deployments   |
+| `:svc`| services      |
+| `:sec`| secrets       |
+| `:cm` | configmaps    |
+| `:ns` | namespaces    |
+| `:no` | nodes         |
+| `:pvc`| pvcs          |
+| `:all`| all-namespace toggle |
+| `:ctx`| context switch |
+| `:q`  | quit          |
 
 ### Cluster picker on startup
 
@@ -126,12 +224,16 @@ When kubeconfig has no current-context (or fails to load) but at least one conte
 
 `client-go` already decodes `Secret.Data` to raw bytes — **never base64-encode/decode manually**. `SecretSvc.GetSecret` populates `SecretItem.Data`; `ListSecrets` deliberately leaves it empty for performance. `UpdateSecret` writes back via Get-then-Update so other fields (`Type`, annotations) survive.
 
-The form component (`ui/components/form.go`) is a mode-separated state machine: `ModeNav`, `ModeValueEdit`, `ModeKeyEdit`, `ModeConfirmDiscard`, `ModeConfirmSave`. `^s` in dirty state shows a 3-line `+added −removed ~changed` diff preview; second `^s` emits `FormSaveRequestedMsg{}`. `esc` while dirty pops a `discard? y/n` confirm.
+The form component (`ui/components/form.go`) is a three-mode state machine:
+
+- `ModeNav` — j/k navigate rows, ↵ enter edit mode, `dd` delete selected row, esc exit (or open `ModeConfirmExit` when dirty)
+- `ModeEdit` — selected row's value field is a textinput; esc commits the value and returns to `ModeNav`
+- `ModeConfirmExit` — single inline bar: `s` save & exit (emits `FormSaveRequestedMsg{}`), `d` discard & exit (emits `FormQuitRequestedMsg{}`), esc cancel back to `ModeNav`
 
 ### Layout & components
 
 - `ui/components/panel.go` — `Panel(PanelConfig{Width, Height, Title, Foot, Active, Body})`. Wraps a pre-rendered body in a `lipgloss.NormalBorder()` rectangle. Title is overlaid onto the top border at col 2; Foot onto the bottom border right-aligned. Active=true swaps `theme.ColorBorder` → `theme.ColorAccent`. Body is hard-clamped to `Width-2 × Height-2`.
-- `ui/layout/topbar.go` — `TopBar(width, cfg) string` returns the body (no border — caller wraps via Panel). Wide path: 6-row block-shadow `KlensLogo` + 6-row KV column + optional 2-col × 4-row resource nav grid. Narrow path (`width < topBarWideAt`): single-row identity strip. `TopBarTitle(cfg)` and `TopBarFoot(pulseOn, live)` produce the title/foot strings.
+- `ui/layout/topbar.go` — `TopBar(width, cfg) string` returns the body (no border — caller wraps via Panel). Wide path: 6-row block-shadow `KlensLogo` + 6-row KV column + optional 2-col × 4-row resource nav grid. Narrow path (`width < TopBarWideAt`): single-row identity strip. `TopBarTitle(cfg)` and `TopBarFoot(pulseOn, live)` produce the title/foot strings.
 - `ui/layout/navstrip.go` — `NavStrip(width, items)` returns a single-row horizontal mnemonic list. **Currently unused** by `app/app.go::View()` — the nav lives in the top bar's 3rd column via `cfg.NavItems`. Kept as an alternate placement option.
 - `ui/layout/details.go` — `DefaultDetails(width, height, DetailsBlock{Title, Subtitle, KVs, Sparks, Containers})`. Renders 4 sections: header (title + subtitle) / KVs / METRICS (sparklines) / CONTAINERS. Each section is suppressed when its data is empty. Pods view populates Sparks + Containers; non-pod views typically only set Title + KVs.
 - `ui/layout/commandbar.go` — `CommandBar(width, inputView, hints)` returns 2 body rows: prompt + input, then the `<key> label` hint row.
@@ -147,7 +249,7 @@ The form component (`ui/components/form.go`) is a mode-separated state machine: 
 - KeyHints honesty: only advertise keys the view's `Update` actually handles. `KeyMap()` carries the full keymap (including `Soon: true` items) for the `?` overlay.
 - Mnemonics 1-8 + `[`/`]` cycle are gated by `isTopLevelList()` in `updateGlobal()` so sub-views (logs, describe) keep their own digit handling (e.g. logs view's 0-5 lookback presets).
 - The 16-color ANSI palette is the source of truth — never inline hex literals at call sites. The palette renders identically on terminals without truecolor and lipgloss falls back cleanly on legacy terminals.
-- `golangci-lint` enforces the full linter set defined in `.golangci.yml` (see that file for rationale comments on each linter). Run `just lint` before committing.
+- `golangci-lint` enforces the full linter set defined in `.golangci.yml` (see that file for rationale comments on each linter). The formatter is `gofumpt`. Run `just lint` before committing.
 - Releases are driven by GoReleaser (`.goreleaser.yml`); `main.version/commit/date` are populated via `-ldflags` at build time, so `go build` locally yields `version="dev"` — that's expected.
 
 ## Adding a new resource type
@@ -157,7 +259,7 @@ The form component (`ui/components/form.go`) is a mode-separated state machine: 
 3. Add the interface to `port/port.go` and a field to `port.Services`.
 4. Wire it in `app.buildServices` and add a view field + constructor + routing in `app/app.go` (`viewKind` enum, `currentView`, `reloadCmd`, `paletteNameToView`).
 5. Register an informer + `*UpdatedMsg` in `k8s/watcher.go`.
-6. Add `ui/views/<resource>.go` implementing the `View` interface (`Table`, `Details`, `Chips`, `KeyHints`, `Title`, `Count`). For non-pod views, return `layout.DefaultDetails(...)` from `Details` driven by a per-view `focusKVs()` method that maps the focused row to a `[]layout.KV`. Implement `KeyMap()` to surface the full keymap (including `Soon`) in the `?` overlay. Implement `Cursored.CursorIndex()` so the table panel foot shows the 1-indexed row position.
+6. Add `ui/views/<resource>.go` implementing the `View` interface (`Table`, `Details`, `Chips`, `KeyHints`, `Title`, `Count`). For non-pod views, return `layout.DefaultDetails(...)` from `Details` driven by a per-view `focusKVs()` method that maps the focused row to a `[]layout.KV`. Implement `KeyMap()` to surface the full keymap (including `Soon`) in the `?` overlay. Implement `Cursored.CursorIndex()` so the table panel foot shows the 1-indexed row position. Implement `Filterable.Filter()` so the shell restores per-view filter state on view switch.
 7. Run async `List` via `tea.Cmd` returning `*ListedMsg` — synchronous list calls block the Update loop on large clusters.
 
 ## Gotchas
@@ -167,6 +269,8 @@ The form component (`ui/components/form.go`) is a mode-separated state machine: 
 - **Resync interval is 30s.** `NewWatcher` hardcodes a 30s informer resync. Tests that depend on watcher cadence should either fake the informer or accept this floor.
 - **klog must be silenced.** klog's reflector traces leak to stderr and corrupt the alt-screen. `main.go` sets `klog.SetLogger(logr.Discard())`, `klog.SetOutput(io.Discard)`, and the flag-based suppressors. Don't remove these.
 - **Lipgloss has no native overlay.** Use `components.Overlay` for any modal that needs to paint over a live frame; `lipgloss.Place` blanks the background.
-- **Persistence.** `~/.klens/config.yaml` carries `Namespace`, `LastView`, and `LogsSinceSeconds`. `app.persistState()` writes after every meaningful state change; failures are swallowed. `app.New` also TOLERATES a malformed config file (logs to stderr and falls back to defaults) — stale fields from older releases used to crash startup.
+- **Persistence.** `~/.klens/config.yaml` carries `Kubeconfig`, `Accent`, `Namespace`, `LastView`, and `LogsSinceSeconds`. `app.persistState()` writes after every meaningful state change; failures are swallowed. `app.New` also tolerates a malformed config file (logs to stderr and falls back to defaults) — stale fields from older releases used to crash startup. `LogsSinceSeconds = 0` means use the built-in default of 1800s (30 min).
 - **EKS identity duplication.** `aws eks update-kubeconfig` writes the cluster ARN to all three of context/cluster/user. `ui/layout/topbar.go::kvColumn` collapses identical rows to a single `ctx <basename>` entry instead of rendering the ARN three times. `trimClusterIdent` does the basename trim.
 - **Logs view bookmarks.** Press `m` in the logs view to insert a marker line (rendered as a `── HH:MM:SS ─────` separator). `space` and `t` toggle live tail; in follow mode, `j` is a no-op (used to silently disable follow, jumping the viewport to the top).
+- **Flash error banner.** Ex-mode commands that fail (unknown resource name, palette error) set `m.flashErr` and schedule a `flashClearMsg` via `tea.Tick` with a 1500ms TTL. The red inline banner auto-clears; don't swallow `flashClearMsg` in new message handlers.
+- **Events and CronJobs informers exist but have no views.** `k8s/watcher.go` registers informers for Events and CronJobs and emits `EventsUpdatedMsg{}` / `CronJobsUpdatedMsg{}`. No views consume these yet — they are forwarded as no-ops. When adding those views, wire the messages through `app.go` exactly as the other resource types.
