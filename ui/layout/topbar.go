@@ -28,40 +28,27 @@ import (
 // topBarRowsWide and topBarRowsNarrow.
 const TopBarWideAt = 80
 
-// markGlyphPair returns (glyph, color) for the animated brand mark. Alternates
-// on pulseOn so the brand pulses in lockstep with the watch dot. When the
-// client isn't live (no cluster), the mark stays in the muted state — a quiet
-// signal that the watcher is dormant.
-func markGlyphPair(pulseOn, live bool) (string, lipgloss.Color) {
-	if pulseOn && live {
-		return "◉", theme.ColorAccent
-	}
-	return "◎", theme.ColorMuted2
-}
-
 // TopBarTitle returns the styled title for the top-bar Panel:
 //
-//	◉  K·L·E·N·S · vdev · build a1b2c3d
+//	K·L·E·N·S · vdev · build a1b2c3d
 //
-// The mark glyph alternates ◉/◎ on pulseOn so the brand pulses in lockstep
-// with the watch dot in the foot. The middle-dot-spaced wordmark gives the
-// brand gravity on the chrome without consuming body rows; middle-dot
-// separators (instead of decorative ◣ ◢ brackets which render poorly in many
-// terminal fonts) carry the eye through version and build segments.
+// Pure wordmark + version + build, no animated glyph. The previous design
+// carried a ◉/◎ brand pulse here, but it tracked `Live` (cluster wired or
+// not) — a value that's effectively static once the picker is past, so the
+// pulse communicated nothing the user could act on. The foot's ● watching
+// stays as the one pulse in the frame because it tracks something real
+// (watcher cadence).
 //
 // Caller hands the return value to PanelConfig.Title; Panel overlays it onto
 // the top border and clamps to the available border width if the title would
 // overflow.
-func TopBarTitle(cfg TopBarConfig, pulseOn bool) string {
-	mark, markColor := markGlyphPair(pulseOn, cfg.Live)
-	markS := lipgloss.NewStyle().Foreground(markColor).Render(mark)
-
+func TopBarTitle(cfg TopBarConfig) string {
 	word := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render("K·L·E·N·S")
 	sep := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render(" · ")
 	ver := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render("v" + safeStr(cfg.KlensVer, "dev"))
 	build := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render("build " + safeStr(cfg.BuildID, "dev"))
 
-	return markS + "  " + word + sep + ver + sep + build
+	return word + sep + ver + sep + build
 }
 
 // TopBarFoot returns the styled foot for the top-bar Panel: the pulse dot

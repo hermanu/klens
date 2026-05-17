@@ -89,7 +89,6 @@ type TopBarConfig struct {
 	// Nil/empty → strip is omitted.
 	NavItems  []NavItem
 	Namespace string // shown in vitals row, e.g. "ns default"
-	Live      bool   // gates the title's ◉/◎ brand mark (muted when no cluster)
 	// PhaseCounts populates the top bar's row 3 with pod phase totals.
 	// Set only on the pods view (via views.PhaseCounter); nil on every other
 	// view → row 3 renders empty so the body height stays at 3 rows.

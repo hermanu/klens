@@ -9,7 +9,7 @@ import (
 )
 
 func TestTopBarTitle_RendersBuildIDAndWordmark(t *testing.T) {
-	got := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0", BuildID: "a1b2c3d"}, false))
+	got := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0", BuildID: "a1b2c3d"}))
 	for _, want := range []string{"K·L·E·N·S", "v0.3.0", "build a1b2c3d"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("TopBarTitle missing %q, got %q", want, got)
@@ -18,28 +18,23 @@ func TestTopBarTitle_RendersBuildIDAndWordmark(t *testing.T) {
 }
 
 func TestTopBarTitle_NoBuildIDFallsBackToDev(t *testing.T) {
-	got := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0"}, false))
+	got := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0"}))
 	if !strings.Contains(got, "build dev") {
 		t.Errorf("missing 'build dev' fallback: %q", got)
 	}
 }
 
-// TestTopBarTitle_PulseSwap verifies the brand mark alternates ◉/◎ on pulseOn
-// so the title "blinks together" with the watch dot. The mark only goes live
-// when Live=true — a dead client locks the mark to the muted state.
-func TestTopBarTitle_PulseSwap(t *testing.T) {
-	on := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0", Live: true}, true))
-	off := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0", Live: true}, false))
-	if !strings.Contains(on, "◉") {
-		t.Errorf("pulseOn+live should show ◉, got %q", on)
-	}
-	if !strings.Contains(off, "◎") {
-		t.Errorf("pulseOff should show ◎, got %q", off)
-	}
-	// Live=false locks to muted glyph regardless of pulseOn.
-	dead := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0", Live: false}, true))
-	if !strings.Contains(dead, "◎") {
-		t.Errorf("Live=false should lock to ◎, got %q", dead)
+// TestTopBarTitle_NoPulseGlyph verifies the title carries no animated mark.
+// The brand pulse used to alternate ◉/◎ tied to a "Live" field, but `Live`
+// didn't communicate anything actionable to the user (it was effectively
+// static once the cluster picker was past). The watching dot in the foot is
+// the only pulse in the frame now.
+func TestTopBarTitle_NoPulseGlyph(t *testing.T) {
+	got := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0"}))
+	for _, unwanted := range []string{"◉", "◎"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("title should not carry a pulse glyph anymore, found %q in %q", unwanted, got)
+		}
 	}
 }
 
@@ -71,7 +66,6 @@ func TestTopBar_Wide_RendersIdentityAndVitals(t *testing.T) {
 		Uptime:     "62d 14h",
 		Namespace:  "default",
 		NodesReady: 9, NodesTotal: 9,
-		Live: true,
 	})
 	plain := stripANSI(out)
 	for _, want := range []string{
@@ -154,7 +148,6 @@ func TestTopBar_Narrow_SingleRow(t *testing.T) {
 	out := layout.TopBar(50, layout.TopBarConfig{
 		Context:    "prod",
 		NodesReady: 9, NodesTotal: 9,
-		Live: true,
 	})
 	plain := stripANSI(out)
 	if !strings.Contains(plain, "ctx prod") {

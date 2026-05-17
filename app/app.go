@@ -1033,7 +1033,6 @@ func (m Model) View() string {
 		CPUPercent: cm.CPUPercent,
 		NavItems:   navItems,
 		Namespace:  fallback(m.namespace, "all"),
-		Live:       m.client != nil,
 	}
 	if pc, ok := v.(views.PhaseCounter); ok {
 		r, p, e, t := pc.PhaseCounts()
@@ -1042,8 +1041,8 @@ func (m Model) View() string {
 	topPanel := components.Panel(components.PanelConfig{
 		Width:  m.width,
 		Height: topBarH,
-		Title:  layout.TopBarTitle(topCfg, pulseOn),
-		Foot:   layout.TopBarFoot(pulseOn, topCfg.Live),
+		Title:  layout.TopBarTitle(topCfg),
+		Foot:   layout.TopBarFoot(pulseOn, m.client != nil),
 		Body:   layout.TopBar(m.width-2, topCfg),
 	})
 
