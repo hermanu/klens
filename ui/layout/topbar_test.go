@@ -8,9 +8,9 @@ import (
 	"github.com/hermanu/klens/ui/layout"
 )
 
-func TestTopBarTitle_RendersBuildID(t *testing.T) {
-	got := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0", BuildID: "a1b2c3d"}))
-	for _, want := range []string{"KLENS", "0.3.0", "build a1b2c3d"} {
+func TestTopBarTitle_RendersBuildIDAndWordmark(t *testing.T) {
+	got := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0", BuildID: "a1b2c3d"}, false))
+	for _, want := range []string{"K·L·E·N·S", "v0.3.0", "build a1b2c3d"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("TopBarTitle missing %q, got %q", want, got)
 		}
@@ -18,9 +18,28 @@ func TestTopBarTitle_RendersBuildID(t *testing.T) {
 }
 
 func TestTopBarTitle_NoBuildIDFallsBackToDev(t *testing.T) {
-	got := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0"}))
+	got := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0"}, false))
 	if !strings.Contains(got, "build dev") {
 		t.Errorf("missing 'build dev' fallback: %q", got)
+	}
+}
+
+// TestTopBarTitle_PulseSwap verifies the brand mark alternates ◉/◎ on pulseOn
+// so the title "blinks together" with the watch dot. The mark only goes live
+// when Live=true — a dead client locks the mark to the muted state.
+func TestTopBarTitle_PulseSwap(t *testing.T) {
+	on := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0", Live: true}, true))
+	off := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0", Live: true}, false))
+	if !strings.Contains(on, "◉") {
+		t.Errorf("pulseOn+live should show ◉, got %q", on)
+	}
+	if !strings.Contains(off, "◎") {
+		t.Errorf("pulseOff should show ◎, got %q", off)
+	}
+	// Live=false locks to muted glyph regardless of pulseOn.
+	dead := stripANSI(layout.TopBarTitle(layout.TopBarConfig{KlensVer: "0.3.0", Live: false}, true))
+	if !strings.Contains(dead, "◎") {
+		t.Errorf("Live=false should lock to ◎, got %q", dead)
 	}
 }
 
@@ -35,11 +54,12 @@ func TestTopBarFoot_PulseSwap(t *testing.T) {
 	}
 }
 
-// TestTopBar_Wide_RendersBodyKVGrid verifies the body output at wide widths
-// contains the KV grid contents. The brand and buildID live in the TITLE
-// string (asserted separately); the right column was dropped because the
-// nav rail's CLUSTER footer already shows nodes/cpu/mem.
-func TestTopBar_Wide_RendersBodyKVGrid(t *testing.T) {
+// TestTopBar_Wide_RendersIdentityAndVitals verifies the 3-row dashboard
+// surfaces the cluster identity (ctx, region, k8s, uptime), the live vitals
+// (nodes ratio), and the namespace chip. Cluster + user are intentionally
+// not rendered as separate chips — the ctx basename covers the identity for
+// EKS kubeconfigs where ctx/cluster/user are identical ARNs.
+func TestTopBar_Wide_RendersIdentityAndVitals(t *testing.T) {
 	out := layout.TopBar(120, layout.TopBarConfig{
 		Context:    "production-eks",
 		Cluster:    "acme-prod-2",
@@ -49,15 +69,19 @@ func TestTopBar_Wide_RendersBodyKVGrid(t *testing.T) {
 		KlensVer:   "0.3.0",
 		BuildID:    "a1b2c3d",
 		Uptime:     "62d 14h",
+		Namespace:  "default",
+		NodesReady: 9, NodesTotal: 9,
+		Live: true,
 	})
 	plain := stripANSI(out)
 	for _, want := range []string{
-		"production-eks",
-		"acme-prod-2",
-		"us-east-1",
-		"alice@acme.io",
-		"v1.30.4",
-		"62d 14h",
+		"KLENS",          // inline mark + wordmark on row 1
+		"production-eks", // ctx
+		"us-east-1",      // region
+		"v1.30.4",        // k8s version
+		"62d 14h",        // uptime
+		"nodes 9/9",      // vitals
+		"ns default",     // namespace chip on row 2
 	} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("body missing %q\n--- output ---\n%s", want, plain)
@@ -65,11 +89,9 @@ func TestTopBar_Wide_RendersBodyKVGrid(t *testing.T) {
 	}
 }
 
-// TestTopBar_Wide_DropsRedundantClusterAndUser verifies that when ctx,
-// cluster, and user are all the same ARN (the EKS default), the cluster
-// and user rows collapse and only the ctx line shows the basename. This
-// is the specific redundancy bug surfaced by an EKS kubeconfig.
-func TestTopBar_Wide_DropsRedundantClusterAndUser(t *testing.T) {
+// TestTopBar_Wide_TrimsARNToBasename verifies that when ctx is an EKS ARN,
+// only the cluster basename renders on row 1 — never the raw 60-char ARN.
+func TestTopBar_Wide_TrimsARNToBasename(t *testing.T) {
 	arn := "arn:aws:eks:eu-west-1:857619978098:cluster/maisa-sdlc-eks"
 	out := layout.TopBar(120, layout.TopBarConfig{
 		Context:    arn,
@@ -84,47 +106,66 @@ func TestTopBar_Wide_DropsRedundantClusterAndUser(t *testing.T) {
 	if strings.Contains(plain, "arn:aws:eks") {
 		t.Errorf("raw ARN should be trimmed to basename, got:\n%s", plain)
 	}
-	if strings.Contains(plain, "cluster maisa-sdlc-eks") {
-		t.Errorf("cluster row should collapse when identical to ctx, got:\n%s", plain)
-	}
-	if strings.Contains(plain, "user maisa-sdlc-eks") {
-		t.Errorf("user row should collapse when identical to ctx, got:\n%s", plain)
-	}
 }
 
-// TestTopBar_BodyHasSixRows verifies the wide body is exactly 6 rows tall,
-// matching the 6-row block-shadow KLENS logo. The bordering panel adds the
-// 2 border rows separately (topBarRowsWide = 8 in app/app.go).
-func TestTopBar_BodyHasSixRows(t *testing.T) {
+// TestTopBar_BodyHasThreeRows verifies the wide body is exactly 3 rows
+// (identity / vitals / phase). The bordering Panel adds the 2 border rows
+// separately (topBarRowsWide = 5 in app/app.go).
+func TestTopBar_BodyHasThreeRows(t *testing.T) {
 	out := layout.TopBar(120, layout.TopBarConfig{
 		Context:    "prod",
 		NodesReady: 1, NodesTotal: 1,
 	})
 	lines := strings.Split(out, "\n")
-	if len(lines) != 6 {
-		t.Errorf("want 6 body rows at width=120, got %d:\n%s", len(lines), out)
+	if len(lines) != 3 {
+		t.Errorf("want 3 body rows at width=120, got %d:\n%s", len(lines), out)
 	}
 }
 
-// TestTopBar_Narrow_NoLogoSingleRow verifies the narrow fallback drops the
-// block logo and returns a single body row.
-func TestTopBar_Narrow_NoLogoSingleRow(t *testing.T) {
+// TestTopBar_Wide_NavStripRendersActive verifies the horizontal nav strip
+// in row 2 renders the active item with the ▌ accent.
+func TestTopBar_Wide_NavStripRendersActive(t *testing.T) {
+	out := layout.TopBar(120, layout.TopBarConfig{
+		Context: "prod",
+		NavItems: []layout.NavItem{
+			{Mnemonic: "1", Label: "pods", Active: true},
+			{Mnemonic: "2", Label: "deployments"},
+			{Mnemonic: "3", Label: "services"},
+		},
+	})
+	plain := stripANSI(out)
+	if !strings.Contains(plain, "▌1 pods") {
+		t.Errorf("nav strip should render ▌1 pods for active item, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "2 dp") {
+		t.Errorf("nav strip should render short label '2 dp' for deployments, got:\n%s", plain)
+	}
+}
+
+// TestTopBar_Narrow_RendersMarkPrefix verifies the narrow fallback emits a
+// single body row prefixed with the brand mark so the watching identity is
+// present even when the dashboard collapses.
+func TestTopBar_Narrow_RendersMarkPrefix(t *testing.T) {
 	out := layout.TopBar(50, layout.TopBarConfig{
 		Context:    "prod",
 		NodesReady: 9, NodesTotal: 9,
+		Live: true, PulseOn: true,
 	})
 	plain := stripANSI(out)
-	if strings.Contains(plain, "█████") {
-		t.Errorf("block logo should be hidden at width=50:\n%s", plain)
+	if !strings.Contains(plain, "◉") {
+		t.Errorf("narrow body should include the live mark ◉, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "ctx prod") {
+		t.Errorf("narrow body should keep ctx, got:\n%s", plain)
 	}
 	if lines := strings.Split(out, "\n"); len(lines) != 1 {
 		t.Errorf("narrow body should be 1 row, got %d", len(lines))
 	}
 }
 
-// TestTopBar_DropsRedundantArn verifies that long ARN-style context names
-// don't cause overflow when rendered.
-func TestTopBar_DropsRedundantArn(t *testing.T) {
+// TestTopBar_LongARNDoesNotOverflowWidth verifies long ARN-style context
+// names get trimmed/dropped rather than overflowing the body width.
+func TestTopBar_LongARNDoesNotOverflowWidth(t *testing.T) {
 	out := layout.TopBar(120, layout.TopBarConfig{
 		Context:    "arn:aws:eks:eu-west-1:857619978098:cluster/maisa-sdlc-eks",
 		NodesReady: 9, NodesTotal: 9,

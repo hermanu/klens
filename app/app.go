@@ -61,7 +61,7 @@ const (
 // shell. minDetailsAt unchanged (right column drops below 120 cols).
 const (
 	detailsWidth     = 44
-	topBarRowsWide   = 8   // 1 top border + 6 body + 1 bottom border
+	topBarRowsWide   = 5   // 1 top border + 3 body + 1 bottom border (was 8 before logo drop)
 	topBarRowsNarrow = 3   // 1 top border + 1 body + 1 bottom border
 	cmdBarRows       = 4   // 1 top border + 2 body + 1 bottom border
 	minDetailsAt     = 120 // unchanged — drop right column below this width
@@ -1017,6 +1017,7 @@ func (m Model) View() string {
 	if m.isTopLevelList() {
 		navItems = m.navItems()
 	}
+	pulseOn := (time.Now().UnixMilli()/700)%2 == 0
 	topCfg := layout.TopBarConfig{
 		Context:    fallback(m.cluster.Context, "—"),
 		Cluster:    fallback(m.cluster.Cluster, "—"),
@@ -1034,12 +1035,12 @@ func (m Model) View() string {
 		Namespace:  fallback(m.namespace, "all"),
 		Resource:   v.Title(),
 		Live:       m.client != nil,
+		PulseOn:    pulseOn,
 	}
-	pulseOn := (time.Now().UnixMilli()/700)%2 == 0
 	topPanel := components.Panel(components.PanelConfig{
 		Width:  m.width,
 		Height: topBarH,
-		Title:  layout.TopBarTitle(topCfg),
+		Title:  layout.TopBarTitle(topCfg, pulseOn),
 		Foot:   layout.TopBarFoot(pulseOn, topCfg.Live),
 		Body:   layout.TopBar(m.width-2, topCfg),
 	})
@@ -1130,11 +1131,13 @@ func tablePanelTitle(resource string, visible, total int, scope string) string {
 	count := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(fmt.Sprintf(" [%d]", total))
 	if visible != total {
 		count = lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(
-			fmt.Sprintf(" [%d/%d]", visible, total))
+			fmt.Sprintf(" [%d/%d]", visible, total),
+		)
 	}
 	if scope != "" {
 		count = lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(
-			fmt.Sprintf(" [%d/%d · scope: %s]", visible, total, scope))
+			fmt.Sprintf(" [%d/%d · scope: %s]", visible, total, scope),
+		)
 	}
 	return title + count
 }

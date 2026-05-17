@@ -84,13 +84,17 @@ type TopBarConfig struct {
 	// CPUPercent is the latest cpu percent shown next to the sparkline. -1
 	// renders "—" instead of a number.
 	CPUPercent int
-	// NavItems is the 8-entry resource list rendered as a 2-column grid in
-	// the wide top bar's right column (replaces the dropped left rail).
-	// Nil/empty → grid is omitted.
+	// NavItems is the 8-entry resource list rendered as a horizontal strip in
+	// the dashboard's row 2. The active entry carries the ▌ accent.
+	// Nil/empty → strip is omitted.
 	NavItems  []NavItem
-	Namespace string // shown in the breadcrumb, e.g. "ns:all"
-	Resource  string // shown in the breadcrumb, e.g. "pods"
+	Namespace string // shown in vitals row, e.g. "ns default"
+	Resource  string // shown in the breadcrumb (Lever 2), e.g. "pods"
 	Live      bool   // ● live indicator
+	// PulseOn drives the animated ◉/◎ brand mark in both the panel title and
+	// row 1 of the dashboard. Same value the caller passes to TopBarFoot, so
+	// the mark blinks in lockstep with the watch dot.
+	PulseOn bool
 	// VisibleCount/TotalCount are the canonical filtered/total counts that
 	// row 2 anchors at the same column on every render. When equal, the bar
 	// shows "· N"; when different, "· V of N" with V in accent.
