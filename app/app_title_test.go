@@ -45,17 +45,17 @@ func TestTablePanelTitle_ListViewRendersBreadcrumb(t *testing.T) {
 		want      string
 	}{
 		{
-			name:    "no filter, empty namespace renders ns:all",
+			name:    "no filter, empty namespace renders (all)",
 			total:   54,
 			visible: 54,
-			want:    "PODS · ns:all [54]",
+			want:    "PODS(all) [54]",
 		},
 		{
 			name:      "namespace set, no filter, all visible",
 			namespace: "default",
 			total:     54,
 			visible:   54,
-			want:      "PODS · ns:default [54]",
+			want:      "PODS(default) [54]",
 		},
 		{
 			name:      "filter active",
@@ -63,7 +63,7 @@ func TestTablePanelTitle_ListViewRendersBreadcrumb(t *testing.T) {
 			filter:    "foo",
 			total:     54,
 			visible:   4,
-			want:      "PODS · ns:default · /foo [4/54]",
+			want:      "PODS(default) </foo> [4/54]",
 		},
 		{
 			name:      "filter + scope both present",
@@ -72,21 +72,21 @@ func TestTablePanelTitle_ListViewRendersBreadcrumb(t *testing.T) {
 			scope:     "deployment/api",
 			total:     54,
 			visible:   3,
-			want:      "PODS · ns:default · /foo · scope: deployment/api [3/54]",
+			want:      "PODS(default) </foo> [3/54] · scope: deployment/api",
 		},
 		{
 			name:    "scope only (filter empty), zero total — used when drill returns nothing",
 			scope:   "deployment/api",
 			total:   0,
 			visible: 0,
-			want:    "PODS · ns:all · scope: deployment/api",
+			want:    "PODS(all) · scope: deployment/api",
 		},
 		{
 			name:    "filter shows visible/total when different",
 			filter:  "api",
 			total:   54,
 			visible: 7,
-			want:    "PODS · ns:all · /api [7/54]",
+			want:    "PODS(all) </api> [7/54]",
 		},
 	}
 	for _, tc := range cases {

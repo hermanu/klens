@@ -1055,12 +1055,13 @@ func (m Model) View() string {
 	tableTitle := tablePanelTitle(v.Title(), m.namespace, filter, visible, total, m.pods.Scope())
 	tableFoot := tableFootForView(v, visible, total, tableW-4)
 	tablePanel := components.Panel(components.PanelConfig{
-		Width:  tableW,
-		Height: midH,
-		Title:  tableTitle,
-		Foot:   tableFoot,
-		Active: !m.commandMode && !m.filterFocused && !m.showPalette,
-		Body:   tableBody,
+		Width:       tableW,
+		Height:      midH,
+		Title:       tableTitle,
+		TitleCenter: true,
+		Foot:        tableFoot,
+		Active:      !m.commandMode && !m.filterFocused && !m.showPalette,
+		Body:        tableBody,
 	})
 	midPanels = append(midPanels, tablePanel)
 
@@ -1123,61 +1124,69 @@ func (m Model) navItems() []layout.NavItem {
 	}
 }
 
-// tablePanelTitle renders the table panel's notched title with a k9s-style
-// breadcrumb:
+// tablePanelTitle renders the table panel's notched title as a k9s-style
+// breadcrumb with high-contrast accents:
 //
-//	PODS · ns:default · /foo · scope: deployment/api [4/54]
+//	PODS(europa) </foo> [4/54] · scope: deployment/api
+//	  └─accent  └─accent  └─ok  └─warn        └─fg
+//	          └─muted             └─muted (frame)
 //
-// Breadcrumb segments are joined with ` · ` separators in muted styling.
+// Drops the muted `·`-joined segments for k9s's compact parenthesised /
+// bracketed / angle-bracketed groupings, which reads at a glance instead of
+// blending into the chrome. The title is centered on the top border by the
+// caller (PanelConfig.TitleCenter=true) so the eye lands on it directly.
+//
 // Sub-views (logs, describe, generic_describe) report total=0 and no scope —
 // they fall through to just the uppercased resource name, since the
 // breadcrumb belongs to top-level list views.
 //
 // Segments, in order:
-//  1. resource    (uppercased, accent)                  — always present
-//  2. ns:<value>  (empty namespace renders "ns:all")    — list views only
-//  3. /<filter>                                         — only when filter is non-empty
-//  4. scope: <s>  (drill-down, currently pods view)     — only when scope is non-empty
-//  5. [N] or [V/N]                                      — count chip; suppressed when total == 0
+//  1. RESOURCE    (uppercased, accent bold)             — always present
+//  2. (namespace) (empty ns → "(all)", accent value)    — list views only
+//  3. </filter>   (ok-green bold)                       — only when filter is non-empty
+//  4. [N] or [V/N] (warn-yellow bold)                   — count; suppressed when total == 0
+//  5. · scope: target  (muted lead + fg value)          — only when scope is non-empty
 func tablePanelTitle(resource, namespace, filter string, visible, total int, scope string) string {
-	title := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render(strings.ToUpper(resource))
+	accentBold := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
+	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent)
+	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted)
+	muted2 := lipgloss.NewStyle().Foreground(theme.ColorMuted2)
+	fg := lipgloss.NewStyle().Foreground(theme.ColorFG)
+	ok := lipgloss.NewStyle().Foreground(theme.ColorOk).Bold(true)
+	warn := lipgloss.NewStyle().Foreground(theme.ColorWarn).Bold(true)
+
+	title := accentBold.Render(strings.ToUpper(resource))
 	// Sub-views report total=0 and have no drill scope — keep just the resource title.
 	if total == 0 && scope == "" {
 		return title
 	}
 
-	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted)
-	muted2 := lipgloss.NewStyle().Foreground(theme.ColorMuted2)
-	fg := lipgloss.NewStyle().Foreground(theme.ColorFG)
-	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent)
-	sep := muted2.Render(" · ")
-
-	parts := []string{title}
+	var b strings.Builder
+	b.WriteString(title)
 
 	nsValue := namespace
 	if nsValue == "" {
 		nsValue = "all"
 	}
-	parts = append(parts, muted.Render("ns:")+fg.Render(nsValue))
+	b.WriteString(muted.Render("(") + accent.Render(nsValue) + muted.Render(")"))
 
 	if filter != "" {
-		parts = append(parts, muted2.Render("/")+accent.Render(filter))
+		b.WriteString(" " + muted2.Render("</") + ok.Render(filter) + muted2.Render(">"))
+	}
+
+	if total > 0 {
+		countStr := fmt.Sprintf("%d", total)
+		if visible != total {
+			countStr = fmt.Sprintf("%d/%d", visible, total)
+		}
+		b.WriteString(" " + muted.Render("[") + warn.Render(countStr) + muted.Render("]"))
 	}
 
 	if scope != "" {
-		parts = append(parts, muted.Render("scope: ")+fg.Render(scope))
+		b.WriteString(muted2.Render(" · ") + muted.Render("scope: ") + fg.Render(scope))
 	}
 
-	breadcrumb := strings.Join(parts, sep)
-
-	if total > 0 {
-		countStr := fmt.Sprintf(" [%d]", total)
-		if visible != total {
-			countStr = fmt.Sprintf(" [%d/%d]", visible, total)
-		}
-		return breadcrumb + muted.Render(countStr)
-	}
-	return breadcrumb
+	return b.String()
 }
 
 // cmdPanelTitle returns the bottom panel's notched title — repurposed from

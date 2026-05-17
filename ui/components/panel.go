@@ -35,6 +35,12 @@ type PanelConfig struct {
 	// different title style when active should branch and pre-style accordingly
 	// before constructing the PanelConfig.
 	Active bool
+	// TitleCenter, when true, positions the title centered on the top border
+	// instead of the default top-left inset (col 2). Use for panels where the
+	// title is the primary content anchor (e.g. the table's k9s-style
+	// breadcrumb) so the eye lands on it naturally. Falls back to col 2 when
+	// the title is too wide to center cleanly.
+	TitleCenter bool
 	// Body is a pre-rendered multi-line string. The caller is responsible for
 	// fitting it within (Width-2) x (Height-2). Excess is clipped at render
 	// time; shortfall is padded with blank rows.
@@ -90,7 +96,16 @@ func Panel(cfg PanelConfig) string {
 
 	if cfg.Title != "" {
 		titleInset := insetWrap(cfg.Title)
-		frame = Overlay(frame, titleInset, 2, 0)
+		col := 2
+		if cfg.TitleCenter {
+			// Center the title on the top border. Fall back to col 2 if the
+			// title is too wide for the panel — better to inset than to clip.
+			centered := (cfg.Width - lipgloss.Width(titleInset)) / 2
+			if centered > col {
+				col = centered
+			}
+		}
+		frame = Overlay(frame, titleInset, col, 0)
 	}
 	if cfg.Foot != "" {
 		footInset := insetWrap(cfg.Foot)
