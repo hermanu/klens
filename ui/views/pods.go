@@ -71,6 +71,12 @@ type PodsView struct {
 	logTail   []resources.LogLine
 	table     components.Table
 	filter    string
+	// descCache holds DescribePod results for pods the user has focused.
+	// Key: "<namespace>/<name>". Populated lazily on cursor move; cleared
+	// wholesale when the namespace scope changes (different pod set). Stale
+	// entries are tolerated — pressing Enter opens the full describe view
+	// which always refetches.
+	descCache map[string]resources.PodDescription
 	// scope is a programmatic narrowing applied on top of filter — set
 	// by drill-downs (Enter on a deployment / service / node row) so the
 	// pods view shows only that workload's pods without consuming the
@@ -98,6 +104,37 @@ type podsListedMsg struct {
 	err  error
 }
 
+// podDescribedMsg carries the result of an async DescribePod fetch for the
+// pod that was focused when the fetch fired. Stored in the view's descCache
+// keyed by "<ns>/<name>"; the FOCUS pane enriches its KVs and CONTAINERS
+// sections when the matching entry is present.
+type podDescribedMsg struct {
+	ns, name string
+	desc     resources.PodDescription
+	err      error
+}
+
+// fetchFocusedDescribeCmd returns a Cmd that calls DescribePod for the
+// currently focused pod, or nil when there's no focus or the description is
+// already cached. Wired into j/k/g/G/podsListedMsg so cursor moves trigger a
+// background fetch without blocking the Update goroutine.
+func (v PodsView) fetchFocusedDescribeCmd() tea.Cmd {
+	pod := v.SelectedPod()
+	if pod == nil {
+		return nil
+	}
+	key := pod.Namespace + "/" + pod.Name
+	if _, ok := v.descCache[key]; ok {
+		return nil
+	}
+	svc := v.svc
+	ns, name := pod.Namespace, pod.Name
+	return func() tea.Msg {
+		desc, err := svc.DescribePod(context.Background(), ns, name)
+		return podDescribedMsg{ns: ns, name: name, desc: desc, err: err}
+	}
+}
+
 // Update routes tea.Msg through the pods view, handling watcher events,
 // metrics samples, log tail lines, and key input.
 func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
@@ -118,6 +155,17 @@ func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
 			v.pods = msg.pods
 			v.table = v.table.SetRows(v.rows())
 		}
+		// New pods → fetch describe for whichever row is now focused.
+		return v, v.fetchFocusedDescribeCmd()
+
+	case podDescribedMsg:
+		if msg.err != nil {
+			return v, nil // silent — FOCUS gracefully falls back to PodItem data
+		}
+		if v.descCache == nil {
+			v.descCache = make(map[string]resources.PodDescription)
+		}
+		v.descCache[msg.ns+"/"+msg.name] = msg.desc
 		return v, nil
 
 	case k8s.MetricsTickMsg:
@@ -157,6 +205,10 @@ func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
 		} else {
 			v.table = v.table.SetRows(nil)
 		}
+		// Different pod set — drop cached describe data so the next focused
+		// pod fetches fresh info instead of inheriting another namespace's
+		// stale description.
+		v.descCache = nil
 		return v, nil
 
 	case tea.KeyMsg:
@@ -164,15 +216,19 @@ func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
 		case "j", keyDown:
 			v.table = v.table.MoveDown()
 			v.logTail = nil // focus changed; drop old logs
+			return v, v.fetchFocusedDescribeCmd()
 		case "k", "up":
 			v.table = v.table.MoveUp()
 			v.logTail = nil
+			return v, v.fetchFocusedDescribeCmd()
 		case "g":
 			v.table = v.table.MoveTop()
 			v.logTail = nil
+			return v, v.fetchFocusedDescribeCmd()
 		case "G":
 			v.table = v.table.MoveBottom()
 			v.logTail = nil
+			return v, v.fetchFocusedDescribeCmd()
 		case "l":
 			// Switch to the dedicated full-screen logs view and start the
 			// stream tail-only (SinceSeconds=0) so quiet pods still show
@@ -362,31 +418,51 @@ func (v PodsView) Details(width, height int) string {
 		{Label: "net↑", Value: fmt.Sprintf("%dKB/s", int(memNow*0.4+8)), Samples: netUp},
 	}
 
-	// Container summary: one entry derived from the pod's first segment
-	// name. Multi-container rendering needs PodItem to carry containers
-	// (out of scope for this iteration); falls back to one row that reads
-	// honestly with what we already know.
-	containerName := firstSegment(pod.Name)
-	// Image is intentionally left empty — DefaultDetails' CONTAINERS section
-	// omits the image row when Image == "", instead of rendering a useless
-	// "image —" placeholder. A future lazy DescribePod fetch could populate it
-	// for the focused pod.
-	containers := []layout.ContainerSummary{
-		{
-			Name:     containerName,
-			Status:   pod.Status,
-			Restarts: pod.Restarts,
-		},
+	// CONTAINERS + extra KVs come from a cached DescribePod result when the
+	// user has focused this pod long enough for the lazy fetch to land. Until
+	// then, fall back to a single synthesized container row derived from the
+	// pod name's first segment. This keeps the FOCUS pane informative without
+	// blocking on a per-cursor-move API call.
+	kvs := []layout.KV{
+		{Key: "node", Value: pod.Node},
+		{Key: "ip", Value: pod.IP},
+		{Key: "restarts", Value: fmt.Sprintf("%d", pod.Restarts), Warn: pod.Restarts > 0},
+	}
+	var containers []layout.ContainerSummary
+	if desc, ok := v.descCache[key]; ok && len(desc.Containers) > 0 {
+		if desc.QoSClass != "" {
+			kvs = append(kvs, layout.KV{Key: "qos", Value: desc.QoSClass})
+		}
+		if desc.ServiceAccount != "" {
+			kvs = append(kvs, layout.KV{Key: "sa", Value: desc.ServiceAccount})
+		}
+		if desc.RestartPolicy != "" {
+			kvs = append(kvs, layout.KV{Key: "policy", Value: desc.RestartPolicy})
+		}
+		containers = make([]layout.ContainerSummary, 0, len(desc.Containers))
+		for _, c := range desc.Containers {
+			state := c.State
+			if state == "" {
+				state = pod.Status
+			}
+			containers = append(containers, layout.ContainerSummary{
+				Name:   c.Name,
+				Image:  c.Image,
+				Status: state,
+			})
+		}
+	} else {
+		// No describe data yet — single synthesized row with empty Image so
+		// DefaultDetails skips the image line (no useless "image —" placeholder).
+		containers = []layout.ContainerSummary{
+			{Name: firstSegment(pod.Name), Status: pod.Status, Restarts: pod.Restarts},
+		}
 	}
 
 	return layout.DefaultDetails(width, height, layout.DetailsBlock{
-		Title:    pod.Name,
-		Subtitle: fmt.Sprintf("%s · %s · ready %s · %s", pod.Namespace, pod.Status, pod.Ready, fmtAge(pod.Age)),
-		KVs: []layout.KV{
-			{Key: "node", Value: pod.Node},
-			{Key: "ip", Value: pod.IP},
-			{Key: "restarts", Value: fmt.Sprintf("%d", pod.Restarts), Warn: pod.Restarts > 0},
-		},
+		Title:      pod.Name,
+		Subtitle:   fmt.Sprintf("%s · %s · ready %s · %s", pod.Namespace, pod.Status, pod.Ready, fmtAge(pod.Age)),
+		KVs:        kvs,
 		Sparks:     sparks,
 		Containers: containers,
 	})
