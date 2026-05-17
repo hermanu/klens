@@ -61,7 +61,7 @@ const (
 // shell. minDetailsAt unchanged (right column drops below 120 cols).
 const (
 	detailsWidth     = 44
-	topBarRowsWide   = 8   // 1 top border + 6 body + 1 bottom border
+	topBarRowsWide   = 5   // 1 top border + 3 body + 1 bottom border (was 8 before logo drop)
 	topBarRowsNarrow = 3   // 1 top border + 1 body + 1 bottom border
 	cmdBarRows       = 4   // 1 top border + 2 body + 1 bottom border
 	minDetailsAt     = 120 // unchanged — drop right column below this width
@@ -95,6 +95,13 @@ type Model struct {
 
 	palette     components.Palette
 	showPalette bool
+	// recentCmds is a small most-recent-first ring buffer of command names
+	// invoked via the palette or inline ex-mode. Capped at recentCmdLimit.
+	// Surfaced as the RECENT section at the top of the palette when its
+	// input is blank so frequent shortcuts are reachable in one keystroke.
+	// In-memory only (not persisted to ~/.klens/config.yaml — recents are a
+	// per-session affordance, not a configured preference).
+	recentCmds []string
 
 	// Inline ex-mode (`:`) — separate from the modal palette so the two UIs
 	// can coexist. The palette is full-overlay browse-by-list; commandMode is
@@ -710,7 +717,7 @@ func (m Model) updateGlobal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+p":
 		m.showPalette = true
-		m.palette = components.NewPalette(nil)
+		m.palette = components.NewPalette(nil).WithRecent(m.recentCmds)
 		return m, nil
 	case ":":
 		m.commandMode = true
@@ -776,20 +783,54 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // Returns the updated model + tea.Cmd for the side-effect (reload, quit,
 // open context picker). Unknown names map to a no-op so callers don't have
 // to validate before calling.
+//
+// Tracks every successful command invocation in m.recentCmds so the palette
+// can surface a RECENT section on its next open. Unknown names skip the
+// recent-push so typos don't poison the history.
 func (m Model) runCommand(name string) (tea.Model, tea.Cmd) {
 	switch name {
 	case "quit":
+		m = m.pushRecent(name)
 		return m, tea.Quit
 	case "context":
+		m = m.pushRecent(name)
 		return m.openContextPicker(), nil
 	case "all":
 		// Clear the namespace scope so the current view lists across every
 		// namespace. Reuse the NamespaceSelectedMsg path so the handler
 		// fires the same broadcast + per-resource reload it does for a
 		// regular ns switch (Enter on a row in the namespaces view).
+		m = m.pushRecent(name)
 		return m, func() tea.Msg { return views.NamespaceSelectedMsg{Name: ""} }
+	case "refresh":
+		m = m.pushRecent(name)
+		return m, m.reloadCmd()
+	case "describe":
+		// Re-emit Enter on the current view so its existing key handler fires
+		// (SwitchToDescribeMsg on pods, equivalent paths on other list views).
+		// Keeps describe-from-palette identical to describe-from-keypress.
+		m = m.pushRecent(name)
+		return m.routeToCurrentView(tea.KeyMsg{Type: tea.KeyEnter})
+	case "logs":
+		// Re-emit `l` on the current view. Only the pods view (and owner
+		// drill-downs) implement this; other views safely no-op.
+		m = m.pushRecent(name)
+		return m.routeToCurrentView(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	case "filter":
+		// Mirror the `/` keybinding's setup: focus the filter input and sync
+		// it with whatever the current view's Filter() holds.
+		m = m.pushRecent(name)
+		m.filterFocused = true
+		m = m.syncFilterInput()
+		m.filterInput.Focus()
+		return m, nil
+	case "help":
+		m = m.pushRecent(name)
+		m.showHelp = true
+		return m, nil
 	case viewNamePods, viewNameDeployments, viewNameServices, viewNameSecrets,
 		viewNameConfigMaps, viewNameNamespaces, viewNameNodes, viewNamePVCs:
+		m = m.pushRecent(name)
 		m.current = paletteNameToView(name)
 		m.history = nil
 		// Non-drill entry to pods clears any stale scope so the user
@@ -803,6 +844,29 @@ func (m Model) runCommand(name string) (tea.Model, tea.Cmd) {
 		return m, m.reloadCmd()
 	}
 	return m, nil
+}
+
+// recentCmdLimit caps the in-memory history surfaced under the palette's
+// RECENT section. 5 entries comfortably fit on screen without crowding the
+// categorized sections below and matches the "Spotlight"-style affordance.
+const recentCmdLimit = 5
+
+// pushRecent prepends name to recentCmds, dropping any prior occurrence so
+// the same command can't fill the list with duplicates. Capped at
+// recentCmdLimit; older entries fall off the tail. Returns the updated
+// model (value-type semantics — Update never mutates the receiver).
+func (m Model) pushRecent(name string) Model {
+	for i, n := range m.recentCmds {
+		if n == name {
+			m.recentCmds = append(m.recentCmds[:i], m.recentCmds[i+1:]...)
+			break
+		}
+	}
+	m.recentCmds = append([]string{name}, m.recentCmds...)
+	if len(m.recentCmds) > recentCmdLimit {
+		m.recentCmds = m.recentCmds[:recentCmdLimit]
+	}
+	return m
 }
 
 // openContextPicker prepares the runtime context-switch UI: load contexts,
@@ -1017,6 +1081,7 @@ func (m Model) View() string {
 	if m.isTopLevelList() {
 		navItems = m.navItems()
 	}
+	pulseOn := (time.Now().UnixMilli()/700)%2 == 0
 	topCfg := layout.TopBarConfig{
 		Context:    fallback(m.cluster.Context, "—"),
 		Cluster:    fallback(m.cluster.Cluster, "—"),
@@ -1031,31 +1096,36 @@ func (m Model) View() string {
 		CPUSamples: cm.CPUSamples,
 		CPUPercent: cm.CPUPercent,
 		NavItems:   navItems,
-		Namespace:  fallback(m.namespace, "all"),
-		Resource:   v.Title(),
-		Live:       m.client != nil,
 	}
-	pulseOn := (time.Now().UnixMilli()/700)%2 == 0
+	if pc, ok := v.(views.PhaseCounter); ok {
+		r, p, e, t := pc.PhaseCounts()
+		topCfg.PhaseCounts = &layout.PhaseCounts{Running: r, Pending: p, Errored: e, Total: t}
+	}
 	topPanel := components.Panel(components.PanelConfig{
 		Width:  m.width,
 		Height: topBarH,
 		Title:  layout.TopBarTitle(topCfg),
-		Foot:   layout.TopBarFoot(pulseOn, topCfg.Live),
+		Foot:   layout.TopBarFoot(pulseOn, m.client != nil),
 		Body:   layout.TopBar(m.width-2, topCfg),
 	})
 
 	// 2. Mid row: table | details
 	var midPanels []string
 	tableBody := v.Table(tableW-2, midH-2)
-	tableTitle := tablePanelTitle(v.Title(), visible, total, m.pods.Scope())
+	filter := ""
+	if f, ok := v.(views.Filterable); ok {
+		filter = f.Filter()
+	}
+	tableTitle := tablePanelTitle(v.Title(), m.namespace, filter, visible, total, m.pods.Scope())
 	tableFoot := tableFootForView(v, visible, total, tableW-4)
 	tablePanel := components.Panel(components.PanelConfig{
-		Width:  tableW,
-		Height: midH,
-		Title:  tableTitle,
-		Foot:   tableFoot,
-		Active: !m.commandMode && !m.filterFocused && !m.showPalette,
-		Body:   tableBody,
+		Width:       tableW,
+		Height:      midH,
+		Title:       tableTitle,
+		TitleCenter: true,
+		Foot:        tableFoot,
+		Active:      !m.commandMode && !m.filterFocused && !m.showPalette,
+		Body:        tableBody,
 	})
 	midPanels = append(midPanels, tablePanel)
 
@@ -1079,7 +1149,7 @@ func (m Model) View() string {
 	cmdPanel := components.Panel(components.PanelConfig{
 		Width:  m.width,
 		Height: cmdBarRows,
-		Title:  lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render("COMMAND"),
+		Title:  cmdPanelTitle(m),
 		Active: m.commandMode || m.filterFocused,
 		Body:   cmdBody,
 	})
@@ -1118,25 +1188,104 @@ func (m Model) navItems() []layout.NavItem {
 	}
 }
 
-// tablePanelTitle renders the table panel's notched title, including the
-// drill scope chip when set on the pods view. Total == 0 suppresses the
-// count chip entirely (used by logs/describe sub-views where 'lines' or
-// 'fields' isn't a meaningful count to anchor on).
-func tablePanelTitle(resource string, visible, total int, scope string) string {
-	title := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render(strings.ToUpper(resource))
+// tablePanelTitle renders the table panel's notched title as a k9s-style
+// breadcrumb with high-contrast accents:
+//
+//	PODS(europa) </foo> [4/54] · scope: deployment/api
+//	  └─accent  └─accent  └─ok  └─warn        └─fg
+//	          └─muted             └─muted (frame)
+//
+// Drops the muted `·`-joined segments for k9s's compact parenthesised /
+// bracketed / angle-bracketed groupings, which reads at a glance instead of
+// blending into the chrome. The title is centered on the top border by the
+// caller (PanelConfig.TitleCenter=true) so the eye lands on it directly.
+//
+// Sub-views (logs, describe, generic_describe) report total=0 and no scope —
+// they fall through to just the uppercased resource name, since the
+// breadcrumb belongs to top-level list views.
+//
+// Segments, in order:
+//  1. RESOURCE    (uppercased, accent bold)             — always present
+//  2. (namespace) (empty ns → "(all)", accent value)    — list views only
+//  3. </filter>   (ok-green bold)                       — only when filter is non-empty
+//  4. [N] or [V/N] (warn-yellow bold)                   — count; suppressed when total == 0
+//  5. · scope: target  (muted lead + fg value)          — only when scope is non-empty
+func tablePanelTitle(resource, namespace, filter string, visible, total int, scope string) string {
+	accentBold := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
+	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent)
+	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted)
+	muted2 := lipgloss.NewStyle().Foreground(theme.ColorMuted2)
+	fg := lipgloss.NewStyle().Foreground(theme.ColorFG)
+	ok := lipgloss.NewStyle().Foreground(theme.ColorOk).Bold(true)
+	warn := lipgloss.NewStyle().Foreground(theme.ColorWarn).Bold(true)
+
+	title := accentBold.Render(strings.ToUpper(resource))
+	// Sub-views report total=0 and have no drill scope — keep just the resource title.
 	if total == 0 && scope == "" {
 		return title
 	}
-	count := lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(fmt.Sprintf(" [%d]", total))
-	if visible != total {
-		count = lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(
-			fmt.Sprintf(" [%d/%d]", visible, total))
+
+	var b strings.Builder
+	b.WriteString(title)
+
+	nsValue := namespace
+	if nsValue == "" {
+		nsValue = "all"
 	}
+	b.WriteString(muted.Render("(") + accent.Render(nsValue) + muted.Render(")"))
+
+	if filter != "" {
+		b.WriteString(" " + muted2.Render("</") + ok.Render(filter) + muted2.Render(">"))
+	}
+
+	if total > 0 {
+		countStr := fmt.Sprintf("%d", total)
+		if visible != total {
+			countStr = fmt.Sprintf("%d/%d", visible, total)
+		}
+		b.WriteString(" " + muted.Render("[") + warn.Render(countStr) + muted.Render("]"))
+	}
+
 	if scope != "" {
-		count = lipgloss.NewStyle().Foreground(theme.ColorMuted).Render(
-			fmt.Sprintf(" [%d/%d · scope: %s]", visible, total, scope))
+		b.WriteString(muted2.Render(" · ") + muted.Render("scope: ") + fg.Render(scope))
 	}
-	return title + count
+
+	return b.String()
+}
+
+// cmdPanelTitle returns the bottom panel's notched title — repurposed from
+// a static "COMMAND" label to an input-mode indicator since the prompt body
+// already self-documents:
+//
+//	NAV    — default navigation; muted
+//	FILTER — `/` input focused OR a filter value is set; accent + bold
+//	:EX    — ex-mode entered via `:` (commandMode == true); accent + bold
+//
+// FILTER also fires when a filter value is set but the input is blurred —
+// otherwise the title falsely reads NAV while the table is silently filtered.
+// The palette/help overlays paint on top of the frame so they hide the panel
+// behind them — no special label needed for those modes.
+func cmdPanelTitle(m Model) string {
+	accent := lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true)
+	muted := lipgloss.NewStyle().Foreground(theme.ColorMuted).Bold(true)
+	switch {
+	case m.commandMode:
+		return accent.Render(":EX")
+	case m.filterFocused, hasActiveFilter(m):
+		return accent.Render("FILTER")
+	default:
+		return muted.Render("NAV")
+	}
+}
+
+// hasActiveFilter returns true when the current view exposes a non-empty
+// Filter() value. Used to flip the bottom panel title to FILTER even when the
+// input is blurred, so the user can see the filter is still on.
+func hasActiveFilter(m Model) bool {
+	if f, ok := m.currentView().(views.Filterable); ok {
+		return f.Filter() != ""
+	}
+	return false
 }
 
 // tableFootForView returns the table panel's bottom-right foot — the
@@ -1190,7 +1339,35 @@ func (m Model) renderCmdBody(v views.View, innerW int) string {
 	}
 	hints := append([]layout.KeyHint{}, v.KeyHints()...)
 	hints = append(hints, layout.KeyHint{Key: "?", Label: "help"})
-	return layout.CommandBar(innerW, m.commandBarInput(), hints)
+
+	// Filter is "active" when the input has focus OR carries a non-empty value
+	// (a value persists across view switches via Filterable, so a blurred input
+	// still represents a filtered table). Show the input row only in that case;
+	// otherwise the bottom bar is hints-only — no fake `› / type to filter…`
+	// prompt competing with the real key hints.
+	if m.filterFocused || hasActiveFilter(m) {
+		return layout.CommandBar(innerW, m.commandBarInput(), hints)
+	}
+	return renderHintsOnly(innerW, hints)
+}
+
+// renderHintsOnly returns a 2-row body showing only the key hints — the
+// bottom-bar layout in pure NAV mode. Hints sit on row 2 (closer to the
+// border, where the user's eye lands when scanning for keypress
+// affordances); row 1 stays blank for visual stability so the panel's
+// height never shifts between modes.
+func renderHintsOnly(width int, hints []layout.KeyHint) string {
+	chips := make([]string, 0, len(hints))
+	for _, h := range hints {
+		key := theme.KeyChip.Render(h.Key)
+		label := theme.Dim.Render(" " + h.Label)
+		chips = append(chips, key+label)
+	}
+	right := strings.Join(chips, "  ")
+	pad := max(width-lipgloss.Width(right), 0)
+	hintsRow := strings.Repeat(" ", pad) + right
+	blank := strings.Repeat(" ", width)
+	return blank + "\n" + hintsRow
 }
 
 // overlayCentered paints `modal` over `frame` centered in (width, height).

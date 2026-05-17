@@ -64,3 +64,15 @@ type Capturing interface {
 type Cursored interface {
 	CursorIndex() int
 }
+
+// PhaseCounter is an optional interface that exposes pod phase totals for
+// the top bar's row 3. Only the pods view implements it today — other views
+// have no meaningful per-phase aggregation, so the shell renders an empty
+// row 3 for them (keeping the top bar's 3-row body height stable).
+//
+// Totals reflect the unfiltered cluster reality (not the view's current
+// filter result) so users see "you have 1 error somewhere" even while
+// drilled into a different filtered subset.
+type PhaseCounter interface {
+	PhaseCounts() (running, pending, errored, total int)
+}

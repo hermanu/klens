@@ -84,28 +84,22 @@ type TopBarConfig struct {
 	// CPUPercent is the latest cpu percent shown next to the sparkline. -1
 	// renders "—" instead of a number.
 	CPUPercent int
-	// NavItems is the 8-entry resource list rendered as a 2-column grid in
-	// the wide top bar's right column (replaces the dropped left rail).
-	// Nil/empty → grid is omitted.
-	NavItems  []NavItem
-	Namespace string // shown in the breadcrumb, e.g. "ns:all"
-	Resource  string // shown in the breadcrumb, e.g. "pods"
-	Live      bool   // ● live indicator
-	// VisibleCount/TotalCount are the canonical filtered/total counts that
-	// row 2 anchors at the same column on every render. When equal, the bar
-	// shows "· N"; when different, "· V of N" with V in accent.
-	VisibleCount int
-	TotalCount   int
-	// Totals is the legacy aggregate counter set. Row 2 no longer renders it
-	// (counters were redundant with VisibleCount/TotalCount), but other call
-	// sites may still consult it — leave the field in place.
-	Totals Totals
+	// NavItems is the 8-entry resource list rendered as a horizontal strip in
+	// the dashboard's row 2. The active entry carries the ▌ accent.
+	// Nil/empty → strip is omitted.
+	NavItems []NavItem
+	// PhaseCounts populates the top bar's row 3 with pod phase totals.
+	// Set only on the pods view (via views.PhaseCounter); nil on every other
+	// view → row 3 renders empty so the body height stays at 3 rows.
+	PhaseCounts *PhaseCounts
 }
 
-// Totals are the right-aligned counter chips: pods, deployments, services, events.
-type Totals struct {
-	Pods        int
-	Deployments int
-	Services    int
-	Events      int
+// PhaseCounts holds the pod phase aggregation rendered in the top bar's row 3
+// on the pods view: Running 23 · Pending 1 · Error 0 · Total 54. Reflects the
+// unfiltered cluster reality so the counts don't shift as the user filters.
+type PhaseCounts struct {
+	Running int
+	Pending int
+	Errored int
+	Total   int
 }

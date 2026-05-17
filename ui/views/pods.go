@@ -23,22 +23,36 @@ const sparkLen = 24
 // re-render. New lines push old ones out the front.
 const logTailLen = 50
 
-var podCols = []components.Column{
-	{Header: "NAMESPACE", Width: 14},
+// podColumns returns the table column set for the pods list. When the view
+// is scoped to a specific namespace, the NAMESPACE column is suppressed —
+// every row would otherwise repeat the same word (the breadcrumb on the
+// table panel title already shows which namespace we're scoped to).
+//
+// showNamespace == true when the user is in "all namespaces" mode and the
+// per-row namespace is genuinely useful.
+func podColumns(showNamespace bool) []components.Column {
+	cols := make([]components.Column, 0, 11)
+	if showNamespace {
+		cols = append(cols, components.Column{Header: "NAMESPACE", Width: 14})
+	}
 	// NAME is Flex so any leftover horizontal width on wide terminals goes to
 	// it — pod names are routinely long enough to truncate at 36, and there's
 	// no point leaving a blank band on the right of the table while names get
 	// chopped.
-	{Header: colName, Width: 36, Flex: true},
-	{Header: "READY", Width: 6, Align: components.AlignRight},
-	{Header: "STATUS", Width: 18},
-	{Header: "RST", Width: 4, Align: components.AlignRight},
-	{Header: "CPU·m", Width: 7, Align: components.AlignRight},
-	{Header: "MEM·MB", Width: 7, Align: components.AlignRight},
-	{Header: "TREND", Width: 10},
-	{Header: "IP", Width: 14},
-	{Header: "NODE", Width: 18},
-	{Header: colAge, Width: 6, Align: components.AlignRight},
+	cols = append(
+		cols,
+		components.Column{Header: colName, Width: 36, Flex: true},
+		components.Column{Header: "READY", Width: 6, Align: components.AlignRight},
+		components.Column{Header: "STATUS", Width: 18},
+		components.Column{Header: "RST", Width: 4, Align: components.AlignRight},
+		components.Column{Header: "CPU·m", Width: 7, Align: components.AlignRight},
+		components.Column{Header: "MEM·MB", Width: 7, Align: components.AlignRight},
+		components.Column{Header: "TREND", Width: 10},
+		components.Column{Header: "IP", Width: 14},
+		components.Column{Header: "NODE", Width: 18},
+		components.Column{Header: colAge, Width: 6, Align: components.AlignRight},
+	)
+	return cols
 }
 
 // podSeries is the per-pod ring buffer of CPU + memory samples used for the
@@ -57,6 +71,12 @@ type PodsView struct {
 	logTail   []resources.LogLine
 	table     components.Table
 	filter    string
+	// descCache holds DescribePod results for pods the user has focused.
+	// Key: "<namespace>/<name>". Populated lazily on cursor move; cleared
+	// wholesale when the namespace scope changes (different pod set). Stale
+	// entries are tolerated — pressing Enter opens the full describe view
+	// which always refetches.
+	descCache map[string]resources.PodDescription
 	// scope is a programmatic narrowing applied on top of filter — set
 	// by drill-downs (Enter on a deployment / service / node row) so the
 	// pods view shows only that workload's pods without consuming the
@@ -72,7 +92,7 @@ func NewPodsView(svc port.PodService, namespace string) PodsView {
 	return PodsView{
 		svc:       svc,
 		namespace: namespace,
-		table:     components.NewTable(podCols, nil),
+		table:     components.NewTable(podColumns(namespace == ""), nil),
 		samples:   make(map[string]podSeries),
 	}
 }
@@ -82,6 +102,37 @@ func NewPodsView(svc port.PodService, namespace string) PodsView {
 type podsListedMsg struct {
 	pods []resources.PodItem
 	err  error
+}
+
+// podDescribedMsg carries the result of an async DescribePod fetch for the
+// pod that was focused when the fetch fired. Stored in the view's descCache
+// keyed by "<ns>/<name>"; the FOCUS pane enriches its KVs and CONTAINERS
+// sections when the matching entry is present.
+type podDescribedMsg struct {
+	ns, name string
+	desc     resources.PodDescription
+	err      error
+}
+
+// fetchFocusedDescribeCmd returns a Cmd that calls DescribePod for the
+// currently focused pod, or nil when there's no focus or the description is
+// already cached. Wired into j/k/g/G/podsListedMsg so cursor moves trigger a
+// background fetch without blocking the Update goroutine.
+func (v PodsView) fetchFocusedDescribeCmd() tea.Cmd {
+	pod := v.SelectedPod()
+	if pod == nil {
+		return nil
+	}
+	key := pod.Namespace + "/" + pod.Name
+	if _, ok := v.descCache[key]; ok {
+		return nil
+	}
+	svc := v.svc
+	ns, name := pod.Namespace, pod.Name
+	return func() tea.Msg {
+		desc, err := svc.DescribePod(context.Background(), ns, name)
+		return podDescribedMsg{ns: ns, name: name, desc: desc, err: err}
+	}
 }
 
 // Update routes tea.Msg through the pods view, handling watcher events,
@@ -104,6 +155,17 @@ func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
 			v.pods = msg.pods
 			v.table = v.table.SetRows(v.rows())
 		}
+		// New pods → fetch describe for whichever row is now focused.
+		return v, v.fetchFocusedDescribeCmd()
+
+	case podDescribedMsg:
+		if msg.err != nil {
+			return v, nil // silent — FOCUS gracefully falls back to PodItem data
+		}
+		if v.descCache == nil {
+			v.descCache = make(map[string]resources.PodDescription)
+		}
+		v.descCache[msg.ns+"/"+msg.name] = msg.desc
 		return v, nil
 
 	case k8s.MetricsTickMsg:
@@ -130,11 +192,23 @@ func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
 		return v, nil
 
 	case NamespaceChangedMsg:
+		wasAll := v.namespace == ""
 		v.namespace = msg.Namespace
+		nowAll := v.namespace == ""
 		// Drop stale data — the follow-up PodsUpdatedMsg refetches.
 		v.pods = nil
 		v.logTail = nil
-		v.table = v.table.SetRows(nil)
+		// When the "all namespaces" state flips, rebuild the table so the
+		// NAMESPACE column is added/removed accordingly.
+		if wasAll != nowAll {
+			v.table = components.NewTable(podColumns(nowAll), nil)
+		} else {
+			v.table = v.table.SetRows(nil)
+		}
+		// Different pod set — drop cached describe data so the next focused
+		// pod fetches fresh info instead of inheriting another namespace's
+		// stale description.
+		v.descCache = nil
 		return v, nil
 
 	case tea.KeyMsg:
@@ -142,15 +216,19 @@ func (v PodsView) Update(msg tea.Msg) (PodsView, tea.Cmd) {
 		case "j", keyDown:
 			v.table = v.table.MoveDown()
 			v.logTail = nil // focus changed; drop old logs
+			return v, v.fetchFocusedDescribeCmd()
 		case "k", "up":
 			v.table = v.table.MoveUp()
 			v.logTail = nil
+			return v, v.fetchFocusedDescribeCmd()
 		case "g":
 			v.table = v.table.MoveTop()
 			v.logTail = nil
+			return v, v.fetchFocusedDescribeCmd()
 		case "G":
 			v.table = v.table.MoveBottom()
 			v.logTail = nil
+			return v, v.fetchFocusedDescribeCmd()
 		case "l":
 			// Switch to the dedicated full-screen logs view and start the
 			// stream tail-only (SinceSeconds=0) so quiet pods still show
@@ -225,6 +303,29 @@ func (v PodsView) CursorIndex() int {
 		return 0
 	}
 	return v.table.SelectedIndex() + 1
+}
+
+// PhaseCounts implements views.PhaseCounter — aggregates the unfiltered pod
+// list into the four buckets the top bar's row 3 renders. Pending bucket
+// includes the transitional reasons (ContainerCreating, PodInitializing)
+// because they're the friendly k9s rendering of `Pending` waiting on either
+// scheduling or container setup. Error bucket folds CrashLoopBackOff /
+// ImagePullBackOff / Evicted into a single signal — those all mean "needs
+// attention" regardless of the specific reason. Succeeded / Completed /
+// Terminating contribute only to Total.
+func (v PodsView) PhaseCounts() (running, pending, errored, total int) {
+	for _, p := range v.pods {
+		switch p.Status {
+		case "Running":
+			running++
+		case "Pending", "ContainerCreating", "PodInitializing":
+			pending++
+		case "Failed", "Error", "CrashLoopBackOff", "ImagePullBackOff", "Evicted", "OOMKilled":
+			errored++
+		}
+	}
+	total = len(v.pods)
+	return running, pending, errored, total
 }
 
 // Chips implements views.View. The namespace is shown prominently in the top
@@ -317,28 +418,51 @@ func (v PodsView) Details(width, height int) string {
 		{Label: "net↑", Value: fmt.Sprintf("%dKB/s", int(memNow*0.4+8)), Samples: netUp},
 	}
 
-	// Container summary: one entry derived from the pod's first segment
-	// name. Multi-container rendering needs PodItem to carry containers
-	// (out of scope for this iteration); falls back to one row that reads
-	// honestly with what we already know.
-	containerName := firstSegment(pod.Name)
-	containers := []layout.ContainerSummary{
-		{
-			Name:     containerName,
-			Image:    "—", // unknown without a DescribePod fetch
-			Status:   pod.Status,
-			Restarts: pod.Restarts,
-		},
+	// CONTAINERS + extra KVs come from a cached DescribePod result when the
+	// user has focused this pod long enough for the lazy fetch to land. Until
+	// then, fall back to a single synthesized container row derived from the
+	// pod name's first segment. This keeps the FOCUS pane informative without
+	// blocking on a per-cursor-move API call.
+	kvs := []layout.KV{
+		{Key: "node", Value: pod.Node},
+		{Key: "ip", Value: pod.IP},
+		{Key: "restarts", Value: fmt.Sprintf("%d", pod.Restarts), Warn: pod.Restarts > 0},
+	}
+	var containers []layout.ContainerSummary
+	if desc, ok := v.descCache[key]; ok && len(desc.Containers) > 0 {
+		if desc.QoSClass != "" {
+			kvs = append(kvs, layout.KV{Key: "qos", Value: desc.QoSClass})
+		}
+		if desc.ServiceAccount != "" {
+			kvs = append(kvs, layout.KV{Key: "sa", Value: desc.ServiceAccount})
+		}
+		if desc.RestartPolicy != "" {
+			kvs = append(kvs, layout.KV{Key: "policy", Value: desc.RestartPolicy})
+		}
+		containers = make([]layout.ContainerSummary, 0, len(desc.Containers))
+		for _, c := range desc.Containers {
+			state := c.State
+			if state == "" {
+				state = pod.Status
+			}
+			containers = append(containers, layout.ContainerSummary{
+				Name:   c.Name,
+				Image:  c.Image,
+				Status: state,
+			})
+		}
+	} else {
+		// No describe data yet — single synthesized row with empty Image so
+		// DefaultDetails skips the image line (no useless "image —" placeholder).
+		containers = []layout.ContainerSummary{
+			{Name: firstSegment(pod.Name), Status: pod.Status, Restarts: pod.Restarts},
+		}
 	}
 
 	return layout.DefaultDetails(width, height, layout.DetailsBlock{
-		Title:    pod.Name,
-		Subtitle: fmt.Sprintf("%s · %s · ready %s · %s", pod.Namespace, pod.Status, pod.Ready, fmtAge(pod.Age)),
-		KVs: []layout.KV{
-			{Key: "node", Value: pod.Node},
-			{Key: "ip", Value: pod.IP},
-			{Key: "restarts", Value: fmt.Sprintf("%d", pod.Restarts), Warn: pod.Restarts > 0},
-		},
+		Title:      pod.Name,
+		Subtitle:   fmt.Sprintf("%s · %s · ready %s · %s", pod.Namespace, pod.Status, pod.Ready, fmtAge(pod.Age)),
+		KVs:        kvs,
 		Sparks:     sparks,
 		Containers: containers,
 	})
@@ -376,6 +500,7 @@ func (v PodsView) visiblePods() []resources.PodItem {
 
 func (v PodsView) rows() []components.Row {
 	pods := v.visiblePods()
+	showNamespace := v.namespace == ""
 	rows := make([]components.Row, len(pods))
 	for i, p := range pods {
 		key := p.Namespace + "/" + p.Name
@@ -389,8 +514,12 @@ func (v PodsView) rows() []components.Row {
 			memCell = fmt.Sprintf("%d", int(v))
 		}
 		spark := components.Sparkline(scaleSeries(s.cpu, scaleCPU), 10, statusDotColor(p.Status))
-		rows[i] = components.Row{
-			components.NSChip(p.Namespace),
+		row := components.Row{}
+		if showNamespace {
+			row = append(row, components.NSChip(p.Namespace))
+		}
+		row = append(
+			row,
 			highlightMatch(p.Name, v.filter),
 			p.Ready,
 			components.StatusPill(p.Status),
@@ -401,7 +530,8 @@ func (v PodsView) rows() []components.Row {
 			highlightMatch(fallbackOr(p.IP), v.filter),
 			highlightMatch(fallbackOr(p.Node), v.filter),
 			fmtAge(p.Age),
-		}
+		)
+		rows[i] = row
 	}
 	return rows
 }
