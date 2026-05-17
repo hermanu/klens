@@ -105,19 +105,14 @@ func renderTopBarWide(inner int, cfg TopBarConfig) string {
 	return strings.Join(rows, "\n")
 }
 
-// identityRow renders the dashboard's row 1: animated mark glyph followed by
-// space-separated identity chips (ctx · region · k8s · uptime). The brand
-// wordmark already lives in the panel title — repeating "KLENS" inline here
-// would duplicate it across two adjacent rows, so the body keeps just the
-// mark as a single-cell pulse indicator.
+// identityRow renders the dashboard's row 1: space-separated identity chips
+// (ctx · region · k8s · uptime). The brand pulse lives exclusively on the
+// panel title — repeating an animated mark here would be a third pulsing
+// dot competing with the title mark and the `● watching` foot.
 //
 // Chips drop from the right (lowest-priority first) when the row would
-// overflow. The mark prefix is always preserved as the row's anchor.
+// overflow. ctx is the row's anchor and never drops.
 func identityRow(inner int, cfg TopBarConfig) string {
-	mark, markColor := markGlyphPair(cfg.PulseOn, cfg.Live)
-	prefix := lipgloss.NewStyle().Foreground(markColor).Render(mark) + "  "
-	prefixW := lipgloss.Width(prefix)
-
 	sep := lipgloss.NewStyle().Foreground(theme.ColorMuted2).Render("  ·  ")
 	sepW := lipgloss.Width(sep)
 
@@ -135,13 +130,11 @@ func identityRow(inner int, cfg TopBarConfig) string {
 	addChip("k8s", optionalStr(cfg.K8sVersion))
 	addChip("uptime", optionalStr(cfg.Uptime))
 
-	// Drop chips from the right until the row fits within the budget that's
-	// left after the mark prefix.
-	available := max(inner-prefixW, 0)
-	for len(chips) > 0 && joinedWidth(chips, sepW) > available {
+	// Drop chips from the right (lowest-priority) until the row fits.
+	for len(chips) > 1 && joinedWidth(chips, sepW) > inner {
 		chips = chips[:len(chips)-1]
 	}
-	return padRight(prefix+strings.Join(chips, sep), inner)
+	return padRight(strings.Join(chips, sep), inner)
 }
 
 // vitalsRow renders the dashboard's row 2: nodes ratio + cpu sparkline +
@@ -332,9 +325,6 @@ func trimClusterIdent(s string) string {
 }
 
 func renderTopBarNarrow(inner int, cfg TopBarConfig) string {
-	mark, markColor := markGlyphPair(cfg.PulseOn, cfg.Live)
-	markS := lipgloss.NewStyle().Foreground(markColor).Render(mark)
-
 	val := "—"
 	valColor := theme.ColorFG
 	if cfg.NodesTotal > 0 {
@@ -346,7 +336,7 @@ func renderTopBarNarrow(inner int, cfg TopBarConfig) string {
 		}
 	}
 	dim := lipgloss.NewStyle().Foreground(theme.ColorMuted)
-	row := markS + " " + dim.Render("ctx ") +
+	row := dim.Render("ctx ") +
 		lipgloss.NewStyle().Foreground(theme.ColorFG).Bold(true).Render(trimClusterIdent(safeStr(cfg.Context, "—"))) +
 		"   " + dim.Render("nodes ") +
 		lipgloss.NewStyle().Foreground(valColor).Bold(true).Render(val)

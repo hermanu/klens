@@ -146,21 +146,25 @@ func TestTopBar_Wide_NavStripRendersActive(t *testing.T) {
 	}
 }
 
-// TestTopBar_Narrow_RendersMarkPrefix verifies the narrow fallback emits a
-// single body row prefixed with the brand mark so the watching identity is
-// present even when the dashboard collapses.
-func TestTopBar_Narrow_RendersMarkPrefix(t *testing.T) {
+// TestTopBar_Narrow_SingleRow verifies the narrow fallback collapses to a
+// single body row carrying ctx + nodes ratio. The brand mark is intentionally
+// absent here — it lives only on the panel title so the body doesn't
+// duplicate the pulse glyph competing with the `● watching` foot.
+func TestTopBar_Narrow_SingleRow(t *testing.T) {
 	out := layout.TopBar(50, layout.TopBarConfig{
 		Context:    "prod",
 		NodesReady: 9, NodesTotal: 9,
-		Live: true, PulseOn: true,
+		Live: true,
 	})
 	plain := stripANSI(out)
-	if !strings.Contains(plain, "◉") {
-		t.Errorf("narrow body should include the live mark ◉, got:\n%s", plain)
-	}
 	if !strings.Contains(plain, "ctx prod") {
 		t.Errorf("narrow body should keep ctx, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "nodes 9/9") {
+		t.Errorf("narrow body should keep nodes ratio, got:\n%s", plain)
+	}
+	if strings.Contains(plain, "◉") || strings.Contains(plain, "◎") {
+		t.Errorf("narrow body should NOT carry a pulse mark — title owns the brand pulse, got:\n%s", plain)
 	}
 	if lines := strings.Split(out, "\n"); len(lines) != 1 {
 		t.Errorf("narrow body should be 1 row, got %d", len(lines))

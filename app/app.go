@@ -1034,7 +1034,6 @@ func (m Model) View() string {
 		NavItems:   navItems,
 		Namespace:  fallback(m.namespace, "all"),
 		Live:       m.client != nil,
-		PulseOn:    pulseOn,
 	}
 	if pc, ok := v.(views.PhaseCounter); ok {
 		r, p, e, t := pc.PhaseCounts()
