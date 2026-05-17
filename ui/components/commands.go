@@ -2,34 +2,69 @@ package components
 
 import "strings"
 
+// CommandKind groups commands by their effect so the palette can render
+// section headers (RESOURCES / ACTIONS / SYSTEM) and the dispatcher in app.go
+// can branch cleanly. The zero value is KindResource for source-compat with
+// callers that construct Command literals without setting Kind.
+type CommandKind int
+
+// Command kinds used by DefaultCommands and the palette's grouped render.
+const (
+	// KindResource is a navigation command — switches the active list view
+	// (pods, deployments, services…). The most common operation.
+	KindResource CommandKind = iota
+	// KindAction operates on the current view's focused row or input state
+	// (describe / logs / filter / help). Dispatcher in app.go re-emits the
+	// equivalent keypress so the view's own handler fires.
+	KindAction
+	// KindSystem affects shell-wide state independent of the focused view
+	// (switch namespace scope, switch cluster, force refresh, quit).
+	KindSystem
+)
+
 // Command is one entry in the shell's command vocabulary. Used by both the
 // modal palette (ctrl+p) and the inline ex-mode prompt (`:`), so the two
 // surfaces share a single source of truth for what's runnable.
 //
 // Name is the canonical spelling typed in the modal palette; Alias is the
-// short form (vim-style `:dp`). Either matches in FilterCommands.
+// short form (vim-style `:dp`). Either matches in FilterCommands. Kind drives
+// the section grouping in the palette and the dispatcher's branch logic.
 type Command struct {
 	Name  string // e.g. "deployments"
 	Desc  string // e.g. "list deployments"
 	Alias string // e.g. ":dp"
+	Kind  CommandKind
 }
 
-// DefaultCommands is the built-in command list — resource jumps, the runtime
-// context switcher, and quit. Adding a new command here makes it reachable
-// from both ctrl+p (modal) and `:` (inline) automatically.
+// DefaultCommands is the built-in command vocabulary. Adding a new command
+// here makes it reachable from both ctrl+p (modal palette) and `:` (inline
+// ex-mode) automatically — and renders in the palette under its Kind's
+// section header.
 func DefaultCommands() []Command {
 	return []Command{
-		{Name: "pods", Desc: "list pods", Alias: ":po"},
-		{Name: "deployments", Desc: "list deployments", Alias: ":dp"},
-		{Name: "services", Desc: "list services", Alias: ":svc"},
-		{Name: "secrets", Desc: "list secrets", Alias: ":sec"},
-		{Name: "configmaps", Desc: "list configmaps", Alias: ":cm"},
-		{Name: "namespaces", Desc: "list namespaces", Alias: ":ns"},
-		{Name: "nodes", Desc: "list nodes", Alias: ":no"},
-		{Name: "pvcs", Desc: "list persistent volume claims", Alias: ":pvc"},
-		{Name: "all", Desc: "show all namespaces (clear scope)", Alias: ":all"},
-		{Name: "context", Desc: "switch cluster", Alias: ":ctx"},
-		{Name: "quit", Desc: "exit klens", Alias: ":q"},
+		// Resources — number-key + palette navigation.
+		{Name: "pods", Desc: "list pods", Alias: ":po", Kind: KindResource},
+		{Name: "deployments", Desc: "list deployments", Alias: ":dp", Kind: KindResource},
+		{Name: "services", Desc: "list services", Alias: ":svc", Kind: KindResource},
+		{Name: "nodes", Desc: "list nodes", Alias: ":no", Kind: KindResource},
+		{Name: "configmaps", Desc: "list configmaps", Alias: ":cm", Kind: KindResource},
+		{Name: "secrets", Desc: "list secrets", Alias: ":sec", Kind: KindResource},
+		{Name: "namespaces", Desc: "list namespaces", Alias: ":ns", Kind: KindResource},
+		{Name: "pvcs", Desc: "list persistent volume claims", Alias: ":pvc", Kind: KindResource},
+
+		// Actions — operate on the current view's focused row or input state.
+		// Palette execution re-emits the equivalent keypress so the view's
+		// existing handler fires (no duplicate logic).
+		{Name: "describe", Desc: "describe focused row", Alias: ":d", Kind: KindAction},
+		{Name: "logs", Desc: "tail logs of focused pod", Alias: ":l", Kind: KindAction},
+		{Name: "filter", Desc: "focus the filter input", Alias: ":/", Kind: KindAction},
+		{Name: "help", Desc: "open the help overlay", Alias: ":?", Kind: KindAction},
+
+		// System — shell-wide state changes.
+		{Name: "all", Desc: "show all namespaces (clear scope)", Alias: ":all", Kind: KindSystem},
+		{Name: "context", Desc: "switch cluster", Alias: ":ctx", Kind: KindSystem},
+		{Name: "refresh", Desc: "force-reload the current view", Alias: ":r", Kind: KindSystem},
+		{Name: "quit", Desc: "exit klens", Alias: ":q", Kind: KindSystem},
 	}
 }
 

@@ -95,6 +95,13 @@ type Model struct {
 
 	palette     components.Palette
 	showPalette bool
+	// recentCmds is a small most-recent-first ring buffer of command names
+	// invoked via the palette or inline ex-mode. Capped at recentCmdLimit.
+	// Surfaced as the RECENT section at the top of the palette when its
+	// input is blank so frequent shortcuts are reachable in one keystroke.
+	// In-memory only (not persisted to ~/.klens/config.yaml — recents are a
+	// per-session affordance, not a configured preference).
+	recentCmds []string
 
 	// Inline ex-mode (`:`) — separate from the modal palette so the two UIs
 	// can coexist. The palette is full-overlay browse-by-list; commandMode is
@@ -710,7 +717,7 @@ func (m Model) updateGlobal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+p":
 		m.showPalette = true
-		m.palette = components.NewPalette(nil)
+		m.palette = components.NewPalette(nil).WithRecent(m.recentCmds)
 		return m, nil
 	case ":":
 		m.commandMode = true
@@ -776,20 +783,54 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // Returns the updated model + tea.Cmd for the side-effect (reload, quit,
 // open context picker). Unknown names map to a no-op so callers don't have
 // to validate before calling.
+//
+// Tracks every successful command invocation in m.recentCmds so the palette
+// can surface a RECENT section on its next open. Unknown names skip the
+// recent-push so typos don't poison the history.
 func (m Model) runCommand(name string) (tea.Model, tea.Cmd) {
 	switch name {
 	case "quit":
+		m = m.pushRecent(name)
 		return m, tea.Quit
 	case "context":
+		m = m.pushRecent(name)
 		return m.openContextPicker(), nil
 	case "all":
 		// Clear the namespace scope so the current view lists across every
 		// namespace. Reuse the NamespaceSelectedMsg path so the handler
 		// fires the same broadcast + per-resource reload it does for a
 		// regular ns switch (Enter on a row in the namespaces view).
+		m = m.pushRecent(name)
 		return m, func() tea.Msg { return views.NamespaceSelectedMsg{Name: ""} }
+	case "refresh":
+		m = m.pushRecent(name)
+		return m, m.reloadCmd()
+	case "describe":
+		// Re-emit Enter on the current view so its existing key handler fires
+		// (SwitchToDescribeMsg on pods, equivalent paths on other list views).
+		// Keeps describe-from-palette identical to describe-from-keypress.
+		m = m.pushRecent(name)
+		return m.routeToCurrentView(tea.KeyMsg{Type: tea.KeyEnter})
+	case "logs":
+		// Re-emit `l` on the current view. Only the pods view (and owner
+		// drill-downs) implement this; other views safely no-op.
+		m = m.pushRecent(name)
+		return m.routeToCurrentView(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	case "filter":
+		// Mirror the `/` keybinding's setup: focus the filter input and sync
+		// it with whatever the current view's Filter() holds.
+		m = m.pushRecent(name)
+		m.filterFocused = true
+		m = m.syncFilterInput()
+		m.filterInput.Focus()
+		return m, nil
+	case "help":
+		m = m.pushRecent(name)
+		m.showHelp = true
+		return m, nil
 	case viewNamePods, viewNameDeployments, viewNameServices, viewNameSecrets,
 		viewNameConfigMaps, viewNameNamespaces, viewNameNodes, viewNamePVCs:
+		m = m.pushRecent(name)
 		m.current = paletteNameToView(name)
 		m.history = nil
 		// Non-drill entry to pods clears any stale scope so the user
@@ -803,6 +844,29 @@ func (m Model) runCommand(name string) (tea.Model, tea.Cmd) {
 		return m, m.reloadCmd()
 	}
 	return m, nil
+}
+
+// recentCmdLimit caps the in-memory history surfaced under the palette's
+// RECENT section. 5 entries comfortably fit on screen without crowding the
+// categorized sections below and matches the "Spotlight"-style affordance.
+const recentCmdLimit = 5
+
+// pushRecent prepends name to recentCmds, dropping any prior occurrence so
+// the same command can't fill the list with duplicates. Capped at
+// recentCmdLimit; older entries fall off the tail. Returns the updated
+// model (value-type semantics — Update never mutates the receiver).
+func (m Model) pushRecent(name string) Model {
+	for i, n := range m.recentCmds {
+		if n == name {
+			m.recentCmds = append(m.recentCmds[:i], m.recentCmds[i+1:]...)
+			break
+		}
+	}
+	m.recentCmds = append([]string{name}, m.recentCmds...)
+	if len(m.recentCmds) > recentCmdLimit {
+		m.recentCmds = m.recentCmds[:recentCmdLimit]
+	}
+	return m
 }
 
 // openContextPicker prepares the runtime context-switch UI: load contexts,
